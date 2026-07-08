@@ -1,98 +1,115 @@
 import Link from 'next/link';
-import { Activity, Database, GitBranch, Globe2, KeyRound, Lock, Rocket, Server, Workflow } from 'lucide-react';
+import { AppShell, MiniMetric } from './components/AppShell';
 
-const stats = [
-  ['Projects', '12'],
-  ['Live Domains', '27'],
-  ['Deployments', '183'],
-  ['Failures Saved', '41']
+const deployFlow = [
+  ['01', 'Create project', 'Repo URL, slug, branch and runtime commands are registered.'],
+  ['02', 'Add deploy key', 'Read-only public key is added to the client GitHub repo.'],
+  ['03', 'Upload env', 'Secrets are stored encrypted and injected only at deploy/runtime.'],
+  ['04', 'Provision database', 'Project PostgreSQL DB/user/DATABASE_URL can be generated.'],
+  ['05', 'Push to GitHub', 'GitHub Actions calls Deploy OS API and the VPS runner builds.'],
+  ['06', 'Health + switch', 'New app is promoted only after health check passes.'],
 ];
 
-const flow = [
-  'GitHub repo connect + deploy key generate',
-  'YAML detect from .github/workflows/deploy.yml',
-  '.env upload + encrypted secret storage',
-  'VPS PostgreSQL database auto provision',
-  'Framework detect + Docker build',
-  'Health check + proxy switch + rollback safety',
-  'Domain/subdomain/wildcard DNS + SSL',
-  'Future GitHub push triggers auto deployment'
+const activeProjects = [
+  ['Deploy OS', 'https://vps.techteamlead.com', 'Live', 'Self-hosted runner'],
+  ['Demo Project', 'demo.techteamlead.com', 'Ready', 'Template data'],
+  ['DNS Sandbox', 'dns.techteamlead.com', 'Draft', 'Provider setup'],
 ];
 
 export default function HomePage() {
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="logo"><span className="logo-mark" /> TechTeam Deploy OS</div>
-        <nav className="nav">
-          <Link className="active" href="/">Dashboard</Link>
-          <Link href="/projects/new">New Project</Link>
-          <Link href="/projects/demo/domains">Domains</Link>
-          <Link href="/projects/demo/env">Environment</Link>
-          <Link href="/dns-providers">DNS Providers</Link>
-        </nav>
-      </aside>
-      <main className="main">
-        <div className="header">
-          <div className="title">
-            <h1>Self-hosted VPS deployment platform</h1>
-            <p>GitHub push থেকে auto deploy, .env safe storage, database provision, DNS + SSL routing.</p>
+    <AppShell
+      active="dashboard"
+      title="VPS Deployment Control Center"
+      description="GitHub push থেকে auto deploy, .env safe storage, database provision, DNS + SSL routing — সব workflow এক dashboard থেকে clear ভাবে manage করার জন্য."
+      actions={
+        <>
+          <Link className="btn secondary" href="/dns-providers">DNS Providers</Link>
+          <Link className="btn" href="/projects/new">+ New Project</Link>
+        </>
+      }
+    >
+      <section className="grid grid-4" style={{ marginBottom: 18 }}>
+        <MiniMetric label="GitHub Runner" value="Online" tone="good" />
+        <MiniMetric label="Deploy API" value="Healthy" tone="good" />
+        <MiniMetric label="PM2 Apps" value="3 Live" tone="good" />
+        <MiniMetric label="Normal Deploy Time" value="~2m" />
+      </section>
+
+      <section className="layout-2-rail">
+        <div className="stack">
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Workflow</p>
+                <h2 className="panel-title">How a project goes live</h2>
+                <p className="panel-subtitle">এই flow follow করলে কোন step missing থাকবে না। User/client কে deploy দেওয়ার সময় একই process use করবা।</p>
+              </div>
+              <span className="badge">Production path</span>
+            </div>
+            <div className="flow">
+              {deployFlow.map(([no, title, text]) => (
+                <div className="step" key={no}>
+                  <span className="step-no">{no}</span>
+                  <p><strong>{title}</strong>{text}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <Link className="btn" href="/projects/new"><Rocket size={18} />&nbsp; New Project</Link>
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">Projects</p>
+                <h2 className="panel-title">Current project list preview</h2>
+                <p className="panel-subtitle">Backend project list connect করার আগে UI table ready রাখা হয়েছে।</p>
+              </div>
+              <Link className="btn ghost" href="/projects/new">Create another</Link>
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr><th>Project</th><th>URL</th><th>Status</th><th>Source</th></tr>
+                </thead>
+                <tbody>
+                  {activeProjects.map((project) => (
+                    <tr key={project[0]}>
+                      <td>{project[0]}</td>
+                      <td>{project[1]}</td>
+                      <td><span className={project[2] === 'Live' ? 'badge' : 'badge gray'}>{project[2]}</span></td>
+                      <td>{project[3]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
 
-        <section className="grid grid-3" style={{ marginBottom: 14 }}>
-          {stats.map(([label, value]) => (
-            <div className="card" key={label}>
-              <div className="stat">{value}</div>
-              <p>{label}</p>
-            </div>
-          ))}
-        </section>
-
-        <section className="grid grid-2" style={{ marginBottom: 14 }}>
-          <div className="card">
-            <h2><Workflow size={20} /> Deployment Workflow</h2>
-            <div className="flow">
-              {flow.map((item, index) => (
-                <div className="step" key={item}>
-                  <span className="step-no">{index + 1}</span>
-                  <p>{item}</p>
-                </div>
-              ))}
+        <aside className="stack">
+          <div className="panel">
+            <p className="panel-kicker">Quick Actions</p>
+            <h2 className="panel-title">Start from here</h2>
+            <p className="panel-subtitle">সবচেয়ে common কাজগুলো short path এ রাখা হয়েছে।</p>
+            <div className="stack" style={{ marginTop: 16 }}>
+              <Link className="btn" href="/projects/new">Create project wizard</Link>
+              <Link className="btn secondary" href="/projects/demo/env">Manage environment</Link>
+              <Link className="btn secondary" href="/projects/demo/domains">Add domain / SSL</Link>
+              <Link className="btn ghost" href="/dns-providers">Connect DNS provider</Link>
             </div>
           </div>
-          <div className="card">
-            <h2><Lock size={20} /> Security-first Rules</h2>
-            <div className="flow">
-              {[
-                ['Docker sandbox', 'Unknown project code never runs directly on host.'],
-                ['Encrypted secrets', '.env, deploy key, DNS API key stored encrypted.'],
-                ['Rollback safety', 'Old app stays live until new health check passes.'],
-                ['DNS verification', 'No custom domain route before TXT ownership check.']
-              ].map(([title, desc], index) => (
-                <div className="step" key={title}>
-                  <span className="step-no">{index + 1}</span>
-                  <p><strong>{title}</strong><br />{desc}</p>
-                </div>
-              ))}
+
+          <div className="panel">
+            <p className="panel-kicker">Safety Rules</p>
+            <h2 className="panel-title">Deploy guardrails</h2>
+            <div className="flow" style={{ marginTop: 14 }}>
+              <div className="step"><span className="step-no">✓</span><p><strong>No secrets in repo</strong>.env stays encrypted inside Deploy OS.</p></div>
+              <div className="step"><span className="step-no">✓</span><p><strong>Health check first</strong>New app is promoted only when it is responding.</p></div>
+              <div className="step"><span className="step-no">✓</span><p><strong>DNS verification</strong>Custom domain needs TXT ownership verification.</p></div>
             </div>
           </div>
-        </section>
-
-        <section className="grid grid-3">
-          <Feature icon={<GitBranch />} title="GitHub CI/CD" text="Actions YAML only triggers Deploy OS API; runner pulls code and deploys inside VPS." />
-          <Feature icon={<Database />} title="Auto Database" text="Project-level PostgreSQL DB/user/password + DATABASE_URL injection." />
-          <Feature icon={<Globe2 />} title="Domain DNS" text="Main domain, subdomain, wildcard, provider API, TXT ownership, SSL." />
-          <Feature icon={<KeyRound />} title="Deploy Key" text="Read-only public key goes to GitHub; private key stays encrypted server-side." />
-          <Feature icon={<Server />} title="Runner Agent" text="Queue worker builds Docker image, starts container, checks health, switches route." />
-          <Feature icon={<Activity />} title="Live Logs" text="Build logs, runtime logs, failed states and audit logs for every action." />
-        </section>
-      </main>
-    </div>
+        </aside>
+      </section>
+    </AppShell>
   );
-}
-
-function Feature({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
-  return <div className="card"><div className="badge">{icon} {title}</div><p style={{ marginTop: 10 }}>{text}</p></div>;
 }

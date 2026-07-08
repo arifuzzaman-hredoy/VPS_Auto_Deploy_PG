@@ -63,13 +63,9 @@ npm -v
 docker --version
 docker compose version
 
-BEFORE_HEAD="$(git rev-parse HEAD 2>/dev/null || echo none)"
-
 echo "==> Pull latest code"
 git fetch origin main
 git reset --hard origin/main
-
-AFTER_HEAD="$(git rev-parse HEAD 2>/dev/null || echo none)"
 
 echo "==> Ensure env files"
 cp .env apps/api/.env
@@ -79,23 +75,11 @@ echo "==> Start database services"
 docker compose -f infra/docker-compose.yml up -d postgres redis
 
 echo "==> Dependency check"
-SHOULD_INSTALL="no"
-
 if [ ! -d node_modules ]; then
-  SHOULD_INSTALL="yes"
-fi
-
-if [ "$BEFORE_HEAD" != "none" ] && [ "$BEFORE_HEAD" != "$AFTER_HEAD" ]; then
-  if git diff --name-only "$BEFORE_HEAD" "$AFTER_HEAD" | grep -E '(^package-lock\.json$|^package\.json$|/package\.json$)' >/dev/null; then
-    SHOULD_INSTALL="yes"
-  fi
-fi
-
-if [ "$SHOULD_INSTALL" = "yes" ]; then
-  echo "==> Installing dependencies"
+  echo "==> node_modules missing, installing dependencies"
   npm install --prefer-offline --no-audit --no-fund
 else
-  echo "==> Skipping npm install, dependencies unchanged"
+  echo "==> node_modules exists, skipping npm install"
 fi
 
 echo "==> Prisma generate + push"

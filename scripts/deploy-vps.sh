@@ -54,43 +54,22 @@ wait_for_head() {
   exit 1
 }
 
-run_with_heartbeat() {
-  local label="$1"
-  shift
-
-  echo "==> $label"
-
-  (
-    while true; do
-      echo "heartbeat: $label still running at $(date -Is)"
-      sleep 25
-    done
-  ) &
-  local heartbeat_pid="$!"
-
-  set +e
-  "$@"
-  local exit_code="$?"
-  set -e
-
-  kill "$heartbeat_pid" 2>/dev/null || true
-  wait "$heartbeat_pid" 2>/dev/null || true
-
-  return "$exit_code"
-}
-
 echo "==> Go to app directory"
 cd "$APP_DIR"
+
+echo "==> Runtime"
+node -v
+npm -v
+docker --version
+docker compose version
+
+BEFORE_HEAD="$(git rev-parse HEAD 2>/dev/null || echo none)"
 
 echo "==> Pull latest code"
 git fetch origin main
 git reset --hard origin/main
 
-echo "==> Runtime versions"
-node -v
-npm -v
-docker --version
-docker compose version
+AFTER_HEAD="$(git rev-parse HEAD 2>/dev/null || echo none)"
 
 echo "==> Ensure env files"
 cp .env apps/api/.env
@@ -99,14 +78,24 @@ cp .env apps/runner/.env
 echo "==> Start database services"
 docker compose -f infra/docker-compose.yml up -d postgres redis
 
-echo "==> Install dependencies"
-export NPM_CONFIG_AUDIT=false
-export NPM_CONFIG_FUND=false
+echo "==> Dependency check"
+SHOULD_INSTALL="no"
 
-if [ -f package-lock.json ]; then
-  run_with_heartbeat "npm install" npm install --prefer-offline --no-audit --no-fund
+if [ ! -d node_modules ]; then
+  SHOULD_INSTALL="yes"
+fi
+
+if [ "$BEFORE_HEAD" != "none" ] && [ "$BEFORE_HEAD" != "$AFTER_HEAD" ]; then
+  if git diff --name-only "$BEFORE_HEAD" "$AFTER_HEAD" | grep -E '(^package-lock\.json$|^package\.json$|/package\.json$)' >/dev/null; then
+    SHOULD_INSTALL="yes"
+  fi
+fi
+
+if [ "$SHOULD_INSTALL" = "yes" ]; then
+  echo "==> Installing dependencies"
+  npm install --prefer-offline --no-audit --no-fund
 else
-  run_with_heartbeat "npm install" npm install --no-audit --no-fund
+  echo "==> Skipping npm install, dependencies unchanged"
 fi
 
 echo "==> Prisma generate + push"
@@ -114,7 +103,7 @@ npm run db:generate
 npm run db:push
 
 echo "==> Build"
-run_with_heartbeat "npm run build" npm run build
+npm run build
 
 echo "==> Stop old Deploy OS PM2 apps"
 pm2 delete deploy-os-api deploy-os-web deploy-os-runner 2>/dev/null || true

@@ -1,0 +1,9 @@
+{
+  "name": "@techteam/dockerfile-generator",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "dependencies": { "@techteam/shared": "*" },
+  "devDependencies": { "typescript": "^5.7.0" }
+}

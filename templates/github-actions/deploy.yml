@@ -1,0 +1,29 @@
+name: Deploy with VPS Deploy OS
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Deploy OS
+        env:
+          DEPLOY_API_URL: ${{ secrets.DEPLOY_API_URL }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          curl -fsSL -X POST "$DEPLOY_API_URL/api/deployments/trigger" \
+            -H "Authorization: Bearer $DEPLOY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "repository": "${{ github.repository }}",
+              "branch": "${{ github.ref_name }}",
+              "commit": "${{ github.sha }}",
+              "runId": "${{ github.run_id }}"
+            }'

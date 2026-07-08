@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SourceType {
+  GITHUB
+  ZIP
+}
+
+enum DeploymentStatus {
+  CREATED
+  WAITING_FOR_DEPLOY_KEY
+  REPO_CLONED
+  YAML_DETECTED
+  ENV_UPLOADED
+  DATABASE_PROVISIONED
+  FRAMEWORK_DETECTED
+  QUEUED
+  INSTALLING_DEPENDENCIES
+  PRISMA_GENERATE
+  DATABASE_MIGRATION
+  BUILDING_IMAGE
+  STARTING_CONTAINER
+  HEALTH_CHECKING
+  UPDATING_PROXY
+  LIVE
+  FAILED
+}
+
+enum DomainType {
+  DEFAULT_SUBDOMAIN
+  MAIN_DOMAIN
+  SUBDOMAIN
+  WILDCARD_SUBDOMAIN
+  SAAS_TENANT_WILDCARD
+}
+
+enum DnsStatus {
+  PENDING
+  POINTED
+  NOT_POINTED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+enum SslStatus {
+  PENDING
+  ACTIVE
+  FAILED
+}
+
+enum RouteStatus {
+  PENDING
+  LIVE
+  FAILED
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  projects  Project[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Project {
+  id              String                @id @default(cuid())
+  ownerId         String
+  owner           User                  @relation(fields: [ownerId], references: [id])
+  name            String
+  slug            String                @unique
+  repoUrl         String?
+  sourceType      SourceType            @default(GITHUB)
+  defaultBranch   String                @default("main")
+  framework       String?
+  status          String                @default("CREATED")
+  liveUrl         String?
+  deployKeys      DeployKey[]
+  workflowFiles   WorkflowFile[]
+  envVars         EnvironmentVariable[]
+  databases       ProjectDatabase[]
+  deployments     Deployment[]
+  domains         Domain[]
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+model DeployKey {
+  id                  String   @id @default(cuid())
+  projectId           String
+  project             Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  publicKey           String
+  encryptedPrivateKey String
+  fingerprint         String
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+}
+
+model WorkflowFile {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  path            String
+  name            String
+  triggerBranches String[]
+  usesDeployOsApi Boolean  @default(false)
+  isValid         Boolean  @default(false)
+  warnings        String[]
+  createdAt       DateTime @default(now())
+}
+
+model EnvironmentVariable {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment     String   @default("production")
+  key             String
+  encryptedValue  String
+  isSecret        Boolean  @default(true)
+  isSystemManaged Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([projectId, environment, key])
+}
+
+model ProjectDatabase {
+  id                   String   @id @default(cuid())
+  projectId            String
+  project              Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type                 String   @default("POSTGRESQL")
+  host                 String
+  port                 Int      @default(5432)
+  databaseName         String
+  username             String
+  encryptedPassword    String
+  generatedDatabaseUrl String
+  migrationMode        String   @default("MIGRATE_DEPLOY")
+  status               String   @default("PENDING")
+  createdAt            DateTime @default(now())
+}
+
+model Deployment {
+  id            String           @id @default(cuid())
+  projectId     String
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  source        SourceType       @default(GITHUB)
+  branch        String
+  commitSha     String?
+  status        DeploymentStatus @default(CREATED)
+  imageTag      String?
+  containerName String?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  liveAt        DateTime?
+  logs          DeploymentLog[]
+  createdAt     DateTime         @default(now())
+}
+
+model DeploymentLog {
+  id           String     @id @default(cuid())
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  level        String     @default("info")
+  message      String
+  createdAt    DateTime   @default(now())
+}
+
+model Domain {
+  id                   String             @id @default(cuid())
+  projectId            String
+  project              Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  hostname             String             @unique
+  type                 DomainType
+  isPrimary            Boolean            @default(false)
+  expectedRecordType   String?
+  expectedRecordName   String?
+  expectedRecordValue  String?
+  verificationTxtName  String?
+  verificationTxtValue String?
+  dnsStatus            DnsStatus          @default(PENDING)
+  ownershipStatus      VerificationStatus @default(PENDING)
+  sslStatus            SslStatus          @default(PENDING)
+  routeStatus          RouteStatus        @default(PENDING)
+  status               String             @default("PENDING")
+  isWildcard           Boolean            @default(false)
+  wildcardBase         String?
+  allowExactOverride   Boolean            @default(false)
+  errorMessage         String?
+  lastCheckedAt        DateTime?
+  verifiedAt           DateTime?
+  liveAt               DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
+
+model DnsProviderCredential {
+  id                  String   @id @default(cuid())
+  userId              String
+  provider            String
+  providerName        String
+  encryptedCredential String
+  allowedZone         String?
+  status              String   @default("PENDING")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  target    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+}

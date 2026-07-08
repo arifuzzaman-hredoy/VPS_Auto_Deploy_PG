@@ -23,18 +23,10 @@ wait_for_url() {
   done
 
   echo "ERROR: $name did not become ready"
-  echo "Last curl error:"
   cat /tmp/deploy-os-health-check.err || true
-
-  echo "PM2 status:"
   pm2 status || true
-
-  echo "API logs:"
   pm2 logs deploy-os-api --lines 80 --nostream || true
-
-  echo "Web logs:"
   pm2 logs deploy-os-web --lines 80 --nostream || true
-
   exit 1
 }
 
@@ -62,12 +54,43 @@ wait_for_head() {
   exit 1
 }
 
+run_with_heartbeat() {
+  local label="$1"
+  shift
+
+  echo "==> $label"
+
+  (
+    while true; do
+      echo "heartbeat: $label still running at $(date -Is)"
+      sleep 25
+    done
+  ) &
+  local heartbeat_pid="$!"
+
+  set +e
+  "$@"
+  local exit_code="$?"
+  set -e
+
+  kill "$heartbeat_pid" 2>/dev/null || true
+  wait "$heartbeat_pid" 2>/dev/null || true
+
+  return "$exit_code"
+}
+
 echo "==> Go to app directory"
 cd "$APP_DIR"
 
 echo "==> Pull latest code"
 git fetch origin main
 git reset --hard origin/main
+
+echo "==> Runtime versions"
+node -v
+npm -v
+docker --version
+docker compose version
 
 echo "==> Ensure env files"
 cp .env apps/api/.env
@@ -77,10 +100,13 @@ echo "==> Start database services"
 docker compose -f infra/docker-compose.yml up -d postgres redis
 
 echo "==> Install dependencies"
+export NPM_CONFIG_AUDIT=false
+export NPM_CONFIG_FUND=false
+
 if [ -f package-lock.json ]; then
-  npm ci
+  run_with_heartbeat "npm ci" npm ci --prefer-offline --no-audit --no-fund || run_with_heartbeat "npm install fallback" npm install --no-audit --no-fund
 else
-  npm install
+  run_with_heartbeat "npm install" npm install --no-audit --no-fund
 fi
 
 echo "==> Prisma generate + push"
@@ -88,7 +114,7 @@ npm run db:generate
 npm run db:push
 
 echo "==> Build"
-npm run build
+run_with_heartbeat "npm run build" npm run build
 
 echo "==> Stop old Deploy OS PM2 apps"
 pm2 delete deploy-os-api deploy-os-web deploy-os-runner 2>/dev/null || true

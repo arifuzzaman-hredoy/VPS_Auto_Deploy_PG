@@ -104,7 +104,7 @@ export NPM_CONFIG_AUDIT=false
 export NPM_CONFIG_FUND=false
 
 if [ -f package-lock.json ]; then
-  run_with_heartbeat "npm ci" npm ci --prefer-offline --no-audit --no-fund || run_with_heartbeat "npm install fallback" npm install --no-audit --no-fund
+  run_with_heartbeat "npm install" npm install --prefer-offline --no-audit --no-fund
 else
   run_with_heartbeat "npm install" npm install --no-audit --no-fund
 fi

@@ -75,11 +75,11 @@ echo "==> Start database services"
 docker compose -f infra/docker-compose.yml up -d postgres redis
 
 echo "==> Dependency check"
-if [ ! -d node_modules ]; then
-  echo "==> node_modules missing, installing dependencies"
-  npm install --prefer-offline --no-audit --no-fund
-else
+if [ -d node_modules ] && [ -d node_modules/.prisma ] && [ -d node_modules/@prisma ]; then
   echo "==> node_modules exists, skipping npm install"
+else
+  echo "==> node_modules missing, installing dependencies once"
+  npm install --prefer-offline --no-audit --no-fund
 fi
 
 echo "==> Prisma generate + push"

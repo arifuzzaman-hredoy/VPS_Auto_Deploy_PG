@@ -98,6 +98,7 @@ fuser -k 4000/tcp 2>/dev/null || true
 sleep 3
 
 echo "==> Start Deploy OS PM2 apps"
+unset RUNNER_TRACKING_ID
 pm2 start "npm run start -w apps/api" --name deploy-os-api
 pm2 start "npm run start -w apps/web" --name deploy-os-web
 pm2 start "npm run start -w apps/runner" --name deploy-os-runner
@@ -111,3 +112,4 @@ echo "==> Save PM2"
 pm2 save
 
 echo "==> Deploy completed"
+

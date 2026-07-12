@@ -24,6 +24,13 @@ type SaveStatus = {
   projectId?: string;
 };
 
+type DeployKeyStatus = {
+  type: "idle" | "loading" | "success" | "error";
+  message: string;
+  publicKey: string;
+  fingerprint: string;
+};
+
 const initialForm: ProjectForm = {
   name: "",
   slug: "",
@@ -83,7 +90,13 @@ function mask(value: string) {
 
 export default function NewProjectPage() {
   const [form, setForm] = useState<ProjectForm>(initialForm);
-  const [deployKeyGenerated, setDeployKeyGenerated] = useState(false);
+  const [projectId, setProjectId] = useState("");
+  const [deployKeyStatus, setDeployKeyStatus] = useState<DeployKeyStatus>({
+    type: "idle",
+    message: "",
+    publicKey: "",
+    fingerprint: "",
+  });
   const [copiedTarget, setCopiedTarget] = useState<string>("");
   const [envVariables, setEnvVariables] = useState<Record<string, string>>({});
   const [envErrors, setEnvErrors] = useState<string[]>([]);
@@ -92,11 +105,6 @@ export default function NewProjectPage() {
   const deployToken = useMemo(() => {
     const seed = form.slug || "project-slug";
     return `dep_live_${seed}_replace_with_generated_secret`;
-  }, [form.slug]);
-
-  const publicKeyPreview = useMemo(() => {
-    const seed = form.slug || "project";
-    return `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI_GENERATED_PREVIEW_ONLY deploy-os-${seed}`;
   }, [form.slug]);
 
   const yaml = useMemo(() => {
@@ -131,6 +139,8 @@ jobs:
               "runId": "\${{ github.run_id }}"
             }'`;
   }, [form.branch]);
+
+  const deployKeyGenerated = deployKeyStatus.type === "success" && Boolean(deployKeyStatus.publicKey);
 
   const databaseReady = Boolean(
     form.databaseName.trim() &&
@@ -178,6 +188,101 @@ jobs:
     setEnvErrors(parsed.errors);
   };
 
+  const projectPayload = () => ({
+    name: form.name.trim(),
+    slug: form.slug.trim(),
+    repoUrl: form.repoUrl.trim(),
+    defaultBranch: form.branch.trim() || "main",
+  });
+
+  const validateProjectIdentity = () => {
+    if (!form.name.trim()) return "Project name is required before generating a deploy key.";
+    if (!form.slug.trim()) return "Project slug is required before generating a deploy key.";
+    if (!/^[a-z0-9-]+$/.test(form.slug)) return "Slug can contain only lowercase letters, numbers and hyphen.";
+    if (!form.repoUrl.trim()) return "GitHub repo URL is required before generating a deploy key.";
+    try {
+      new URL(form.repoUrl.trim());
+    } catch {
+      return "Enter a valid GitHub repository URL.";
+    }
+    return "";
+  };
+
+  const parseApiPayload = async (response: Response) => {
+    const text = await response.text();
+    if (!text) return {} as Record<string, unknown>;
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return { message: text } as Record<string, unknown>;
+    }
+  };
+
+  const ensureProject = async () => {
+    const identityError = validateProjectIdentity();
+    if (identityError) throw new Error(identityError);
+
+    const response = await fetch(projectId ? `/api/projects/${projectId}` : "/api/projects", {
+      method: projectId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(projectPayload()),
+    });
+    const payload = await parseApiPayload(response);
+    if (!response.ok) {
+      throw new Error(typeof payload.message === "string" ? payload.message : "Project save failed.");
+    }
+
+    const resolvedProjectId = String(payload.id || projectId || "");
+    if (!resolvedProjectId) throw new Error("Project API did not return a project ID.");
+    setProjectId(resolvedProjectId);
+    return resolvedProjectId;
+  };
+
+  const requestDeployKey = async (resolvedProjectId: string) => {
+    const response = await fetch(`/api/projects/${resolvedProjectId}/deploy-keys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const payload = await parseApiPayload(response);
+    if (!response.ok) {
+      throw new Error(typeof payload.message === "string" ? payload.message : "Deploy key generation failed.");
+    }
+
+    const publicKey = typeof payload.publicKey === "string" ? payload.publicKey : "";
+    const fingerprint = typeof payload.fingerprint === "string" ? payload.fingerprint : "";
+    if (!publicKey.startsWith("ssh-ed25519 ")) {
+      throw new Error("Deploy OS returned an invalid public key.");
+    }
+
+    const reused = payload.reused === true;
+    setDeployKeyStatus({
+      type: "success",
+      publicKey,
+      fingerprint,
+      message: reused
+        ? "Existing active deploy key loaded securely."
+        : "Real Ed25519 deploy key generated. The encrypted private key is stored only on Deploy OS.",
+    });
+    return { publicKey, fingerprint, reused };
+  };
+
+  const generateDeployKey = async () => {
+    setDeployKeyStatus({ type: "loading", message: "Saving project draft and generating a real Ed25519 key...", publicKey: "", fingerprint: "" });
+    try {
+      const resolvedProjectId = await ensureProject();
+      await requestDeployKey(resolvedProjectId);
+      setSaveStatus({
+        type: "success",
+        projectId: resolvedProjectId,
+        message: "Project draft saved. Add the generated public key to GitHub → Settings → Deploy keys.",
+      });
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "Deploy key generation failed.";
+      setDeployKeyStatus({ type: "error", message, publicKey: "", fingerprint: "" });
+      setSaveStatus({ type: "error", message });
+    }
+  };
+
   const validateBeforeSave = () => {
     if (!form.name.trim()) return "Project name is required.";
     if (!form.slug.trim()) return "Project slug is required.";
@@ -198,27 +303,16 @@ jobs:
     setSaveStatus({ type: "loading", message: "Creating project and saving optional setup..." });
 
     try {
-      const projectResponse = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          slug: form.slug.trim(),
-          repoUrl: form.repoUrl.trim(),
-          defaultBranch: form.branch.trim() || "main",
-        }),
-      });
+      const resolvedProjectId = await ensureProject();
+      const followUps: string[] = [projectId ? "project updated" : "project saved"];
 
-      const projectPayload = await projectResponse.json();
-      if (!projectResponse.ok) {
-        throw new Error(projectPayload?.message || "Project create failed.");
+      if (!deployKeyGenerated) {
+        await requestDeployKey(resolvedProjectId);
+        followUps.push("real Ed25519 deploy key generated");
       }
 
-      const projectId = projectPayload.id as string;
-      const followUps: string[] = ["project saved"];
-
       if (Object.keys(envVariables).length > 0) {
-        const envResponse = await fetch(`/api/projects/${projectId}/env`, {
+        const envResponse = await fetch(`/api/projects/${resolvedProjectId}/env`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ environment: "production", variables: envVariables }),
@@ -228,7 +322,7 @@ jobs:
       }
 
       if (databaseReady) {
-        const databaseResponse = await fetch(`/api/projects/${projectId}/database/provision`, {
+        const databaseResponse = await fetch(`/api/projects/${resolvedProjectId}/database/provision`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -244,8 +338,8 @@ jobs:
 
       setSaveStatus({
         type: "success",
-        projectId,
-        message: `Success: ${followUps.join(" + ")}. Next: add deploy key and workflow YAML to client repo.`,
+        projectId: resolvedProjectId,
+        message: `Success: ${followUps.join(" + ")}. Next: add the public key and workflow YAML to the client repo.`,
       });
     } catch (caughtError) {
       setSaveStatus({
@@ -264,7 +358,20 @@ jobs:
       backLabel="Back to Dashboard"
       actions={
         <>
-          <button className="btn ghost" type="button" onClick={() => setForm(initialForm)}>Reset form</button>
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={() => {
+              setForm(initialForm);
+              setProjectId("");
+              setDeployKeyStatus({ type: "idle", message: "", publicKey: "", fingerprint: "" });
+              setEnvVariables({});
+              setEnvErrors([]);
+              setSaveStatus({ type: "idle", message: "" });
+            }}
+          >
+            Reset form
+          </button>
           <button className="btn" type="button" onClick={saveProject} disabled={saveStatus.type === "loading"}>
             {saveStatus.type === "loading" ? "Saving..." : "Save Project"}
           </button>
@@ -340,17 +447,64 @@ jobs:
               </Field>
             </div>
 
-            <div className="grid grid-2" style={{ marginTop: 16 }}>
-              <div>
-                <button className="btn" type="button" onClick={() => setDeployKeyGenerated(true)}>Generate Deploy Key Preview</button>
-                <p className="panel-subtitle">Production এ এই button backend key generation API call করবে। এখন UI flow clear করার জন্য preview দেখাচ্ছে।</p>
+            <div className="stack" style={{ marginTop: 16 }}>
+              <div className="notice good">
+                <strong>How it works:</strong> Deploy OS project draft save করবে, real Ed25519 key pair generate করবে, public key এখানে দেখাবে এবং private key encrypted অবস্থায় server database-এ রাখবে। Private key browser-এ পাঠানো হবে না।
               </div>
-              <div>
-                <pre className="code">{deployKeyGenerated ? publicKeyPreview : "Click Generate Deploy Key Preview first."}</pre>
-                <button className="btn ghost" type="button" onClick={() => copyText("key", publicKeyPreview)} disabled={!deployKeyGenerated} style={{ marginTop: 10 }}>
-                  {copiedTarget === "key" ? "Copied" : "Copy public key"}
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={generateDeployKey}
+                  disabled={deployKeyStatus.type === "loading" || saveStatus.type === "loading"}
+                >
+                  {deployKeyStatus.type === "loading"
+                    ? "Generating Real Key..."
+                    : deployKeyGenerated
+                      ? "Load Active Deploy Key"
+                      : "Generate Real Deploy Key"}
                 </button>
+                {projectId ? <span className="badge gray">Draft saved: {projectId.slice(0, 10)}...</span> : null}
               </div>
+
+              {deployKeyStatus.message ? (
+                <div className={`toast ${deployKeyStatus.type === "success" ? "success" : deployKeyStatus.type === "error" ? "error" : ""}`}>
+                  {deployKeyStatus.message}
+                </div>
+              ) : null}
+
+              {deployKeyGenerated ? (
+                <div className="stack">
+                  <div>
+                    <strong style={{ display: "block", marginBottom: 8 }}>Public deploy key</strong>
+                    <pre
+                      className="code"
+                      style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-all" }}
+                    >
+                      {deployKeyStatus.publicKey}
+                    </pre>
+                  </div>
+                  <div className="review-list">
+                    <ReviewRow label="Fingerprint" value={deployKeyStatus.fingerprint || "Unavailable"} />
+                    <ReviewRow label="Private key" value="Encrypted on server — never shown" />
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    <button
+                      className="btn ghost"
+                      type="button"
+                      onClick={() => copyText("key", deployKeyStatus.publicKey)}
+                    >
+                      {copiedTarget === "key" ? "Copied" : "Copy public key"}
+                    </button>
+                  </div>
+                  <div className="notice">
+                    GitHub repo → <strong>Settings</strong> → <strong>Deploy keys</strong> → <strong>Add deploy key</strong> → এই public key paste করো। <strong>Allow write access</strong> unchecked রাখবে।
+                  </div>
+                </div>
+              ) : (
+                <pre className="code">Fill Project Source, then click Generate Real Deploy Key.</pre>
+              )}
             </div>
           </div>
 

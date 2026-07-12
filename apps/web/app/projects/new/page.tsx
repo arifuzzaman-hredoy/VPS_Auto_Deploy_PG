@@ -91,6 +91,7 @@ function mask(value: string) {
 export default function NewProjectPage() {
   const [form, setForm] = useState<ProjectForm>(initialForm);
   const [projectId, setProjectId] = useState("");
+  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [deployKeyStatus, setDeployKeyStatus] = useState<DeployKeyStatus>({
     type: "idle",
     message: "",
@@ -165,7 +166,23 @@ jobs:
     setForm((current) => ({
       ...current,
       [key]: value,
-      ...(key === "name" && !current.slug ? { slug: slugify(value) } : {}),
+    }));
+  };
+
+  const updateProjectName = (value: string) => {
+    setForm((current) => ({
+      ...current,
+      name: value,
+      slug: slugManuallyEdited ? current.slug : slugify(value),
+    }));
+  };
+
+  const updateProjectSlug = (value: string) => {
+    const normalizedSlug = slugify(value);
+    setSlugManuallyEdited(Boolean(normalizedSlug));
+    setForm((current) => ({
+      ...current,
+      slug: normalizedSlug,
     }));
   };
 
@@ -239,9 +256,14 @@ jobs:
   };
 
   const requestDeployKey = async (resolvedProjectId: string) => {
-    const response = await fetch(`/api/projects/${resolvedProjectId}/deploy-keys`, {
+    // This endpoint has no request payload. A JSON content type with an empty or
+    // proxy-stripped body makes Fastify reject the request before the handler runs.
+    const response = await fetch(`/api/projects/${encodeURIComponent(resolvedProjectId)}/deploy-keys`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Accept: "application/json",
+      },
+      cache: "no-store",
     });
     const payload = await parseApiPayload(response);
     if (!response.ok) {
@@ -364,6 +386,7 @@ jobs:
             onClick={() => {
               setForm(initialForm);
               setProjectId("");
+              setSlugManuallyEdited(false);
               setDeployKeyStatus({ type: "idle", message: "", publicKey: "", fingerprint: "" });
               setEnvVariables({});
               setEnvErrors([]);
@@ -408,10 +431,10 @@ jobs:
 
             <div className="form-grid">
               <Field label="Project name" hint="Example: School ERP / Clinic Website">
-                <input className="input" value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="Project name" />
+                <input className="input" value={form.name} onChange={(event) => updateProjectName(event.target.value)} placeholder="Project name" />
               </Field>
               <Field label="Project slug" hint="URL-safe internal ID">
-                <input className="input" value={form.slug} onChange={(event) => updateForm("slug", slugify(event.target.value))} placeholder="project-slug" />
+                <input className="input" value={form.slug} onChange={(event) => updateProjectSlug(event.target.value)} placeholder="project-slug" />
               </Field>
               <Field label="GitHub repo URL" hint="Private/public repo both supported" full>
                 <input className="input" value={form.repoUrl} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repo" />

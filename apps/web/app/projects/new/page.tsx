@@ -91,7 +91,6 @@ function mask(value: string) {
 export default function NewProjectPage() {
   const [form, setForm] = useState<ProjectForm>(initialForm);
   const [projectId, setProjectId] = useState("");
-  const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [deployKeyStatus, setDeployKeyStatus] = useState<DeployKeyStatus>({
     type: "idle",
     message: "",
@@ -102,6 +101,7 @@ export default function NewProjectPage() {
   const [envVariables, setEnvVariables] = useState<Record<string, string>>({});
   const [envErrors, setEnvErrors] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ type: "idle", message: "" });
+  const [databaseProvisioned, setDatabaseProvisioned] = useState(false);
 
   const deployToken = useMemo(() => {
     const seed = form.slug || "project-slug";
@@ -154,7 +154,7 @@ jobs:
     { label: "GitHub repo URL", done: Boolean(form.repoUrl.trim()) },
     { label: "Deploy key step", done: deployKeyGenerated },
     { label: "Build config", done: Boolean(form.buildCommand.trim() && form.startCommand.trim() && form.appPort.trim()) },
-    { label: "Database optional", done: databaseReady || (!form.databaseName && !form.databaseUser && !form.databasePassword) },
+    { label: "Database optional", done: databaseProvisioned || (!form.databaseName && !form.databaseUser && !form.databasePassword) },
     { label: ".env parsed", done: Boolean(form.envFileName && envErrors.length === 0) },
     { label: "Generated YAML", done: Boolean(yaml) },
   ];
@@ -163,26 +163,14 @@ jobs:
   const progress = Math.round((completedCount / completionItems.length) * 100);
 
   const updateForm = (key: keyof ProjectForm, value: string) => {
+    if (key === "databaseName" || key === "databaseUser" || key === "databasePassword") {
+      setDatabaseProvisioned(false);
+    }
+
     setForm((current) => ({
       ...current,
       [key]: value,
-    }));
-  };
-
-  const updateProjectName = (value: string) => {
-    setForm((current) => ({
-      ...current,
-      name: value,
-      slug: slugManuallyEdited ? current.slug : slugify(value),
-    }));
-  };
-
-  const updateProjectSlug = (value: string) => {
-    const normalizedSlug = slugify(value);
-    setSlugManuallyEdited(Boolean(normalizedSlug));
-    setForm((current) => ({
-      ...current,
-      slug: normalizedSlug,
+      ...(key === "name" && !current.slug ? { slug: slugify(value) } : {}),
     }));
   };
 
@@ -256,14 +244,13 @@ jobs:
   };
 
   const requestDeployKey = async (resolvedProjectId: string) => {
-    // This endpoint has no request payload. A JSON content type with an empty or
-    // proxy-stripped body makes Fastify reject the request before the handler runs.
-    const response = await fetch(`/api/projects/${encodeURIComponent(resolvedProjectId)}/deploy-keys`, {
+    const response = await fetch(`/api/projects/${resolvedProjectId}/deploy-keys`, {
       method: "POST",
       headers: {
+        "Content-Type": "application/json",
         Accept: "application/json",
       },
-      cache: "no-store",
+      body: JSON.stringify({}),
     });
     const payload = await parseApiPayload(response);
     if (!response.ok) {
@@ -344,6 +331,8 @@ jobs:
       }
 
       if (databaseReady) {
+        setDatabaseProvisioned(false);
+
         const databaseResponse = await fetch(`/api/projects/${resolvedProjectId}/database/provision`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -354,8 +343,21 @@ jobs:
             migrationMode: "MIGRATE_DEPLOY",
           }),
         });
-        if (!databaseResponse.ok) throw new Error("Project/env saved, but database provisioning failed.");
-        followUps.push("database provisioned");
+        const databasePayload = await parseApiPayload(databaseResponse);
+        if (!databaseResponse.ok) {
+          const databaseMessage =
+            typeof databasePayload.message === "string"
+              ? databasePayload.message
+              : "Project/env saved, but database provisioning failed.";
+          throw new Error(databaseMessage);
+        }
+
+        setDatabaseProvisioned(true);
+        followUps.push(
+          databasePayload.reused === true
+            ? "existing database credentials refreshed"
+            : "database provisioned",
+        );
       }
 
       setSaveStatus({
@@ -386,10 +388,10 @@ jobs:
             onClick={() => {
               setForm(initialForm);
               setProjectId("");
-              setSlugManuallyEdited(false);
               setDeployKeyStatus({ type: "idle", message: "", publicKey: "", fingerprint: "" });
               setEnvVariables({});
               setEnvErrors([]);
+              setDatabaseProvisioned(false);
               setSaveStatus({ type: "idle", message: "" });
             }}
           >
@@ -431,10 +433,10 @@ jobs:
 
             <div className="form-grid">
               <Field label="Project name" hint="Example: School ERP / Clinic Website">
-                <input className="input" value={form.name} onChange={(event) => updateProjectName(event.target.value)} placeholder="Project name" />
+                <input className="input" value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="Project name" />
               </Field>
               <Field label="Project slug" hint="URL-safe internal ID">
-                <input className="input" value={form.slug} onChange={(event) => updateProjectSlug(event.target.value)} placeholder="project-slug" />
+                <input className="input" value={form.slug} onChange={(event) => updateForm("slug", slugify(event.target.value))} placeholder="project-slug" />
               </Field>
               <Field label="GitHub repo URL" hint="Private/public repo both supported" full>
                 <input className="input" value={form.repoUrl} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repo" />
@@ -564,7 +566,7 @@ jobs:
                   <h2 className="panel-title">Database Setup</h2>
                   <p className="panel-subtitle">Blank রাখলে database provisioning skip হবে। Password minimum 12 chars.</p>
                 </div>
-                <span className={databaseReady ? "badge" : "badge gray"}>{databaseReady ? "Ready" : "Optional"}</span>
+                <span className={databaseProvisioned || databaseReady ? "badge" : "badge gray"}>{databaseProvisioned ? "Provisioned" : databaseReady ? "Ready" : "Optional"}</span>
               </div>
 
               <div className="stack">
@@ -605,7 +607,7 @@ jobs:
               <ReviewRow label="Repo" value={form.repoUrl || "Not set"} />
               <ReviewRow label="Branch" value={form.branch || "main"} />
               <ReviewRow label="Domain" value={form.domain || "Not set"} />
-              <ReviewRow label="DB" value={form.databaseName || "Skipped"} />
+              <ReviewRow label="DB" value={form.databaseName ? `${form.databaseName}${databaseProvisioned ? " · Provisioned" : " · Not provisioned"}` : "Skipped"} />
               <ReviewRow label="DB Pass" value={mask(form.databasePassword)} />
               <ReviewRow label="Env" value={form.envFileName || "Not uploaded"} />
             </div>

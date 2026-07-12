@@ -10,12 +10,18 @@ services:
       - "127.0.0.1:15434:5432"
     volumes:
       - deploy_os_postgres:/var/lib/postgresql/data
+    networks:
+      - default
+      - deploy_runtime
 
   redis:
     image: redis:7-alpine
     container_name: deploy-os-redis
     ports:
       - "127.0.0.1:6380:6379"
+    networks:
+      - default
+      - deploy_runtime
 
   caddy:
     image: caddy:2-alpine
@@ -32,3 +38,7 @@ volumes:
   deploy_os_postgres:
   caddy_data:
   caddy_config:
+
+networks:
+  deploy_runtime:
+    name: techteam-deploy-network

@@ -63,6 +63,23 @@ npm -v
 docker --version
 docker compose version
 
+echo "==> Configure repository-specific Git authentication"
+
+DEPLOY_KEY="/root/.ssh/vps_auto_deploy_pg"
+REPOSITORY_URL="git@github.com:arifuzzaman-hredoy/VPS_Auto_Deploy_PG.git"
+
+if [ ! -f "$DEPLOY_KEY" ]; then
+  echo "ERROR: Repository deploy key not found: $DEPLOY_KEY"
+  exit 1
+fi
+
+chmod 600 "$DEPLOY_KEY"
+
+git remote set-url origin "$REPOSITORY_URL"
+
+git config --local core.sshCommand \
+  "ssh -i $DEPLOY_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+
 echo "==> Pull latest code"
 git fetch origin main
 git reset --hard origin/main
@@ -112,4 +129,5 @@ echo "==> Save PM2"
 pm2 save
 
 echo "==> Deploy completed"
+
 

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { ThemeToggle } from './ThemeToggle';
 
 type NavItem = {
   href: string;
@@ -53,11 +54,13 @@ export function AppShell({
           <span className="brand-mark" aria-hidden="true">
             <DevOpsLogo />
           </span>
-          <span>
+          <span className="brand-copy">
             <strong>Hredoy Deploy OS</strong>
             <small>VPS control panel</small>
           </span>
         </Link>
+
+        <ThemeToggle />
 
         <nav className="side-nav" aria-label="Primary navigation">
           {navItems.map((item) => (
@@ -100,18 +103,26 @@ export function AppShell({
 
 function DevOpsLogo() {
   return (
-    <svg viewBox="0 0 48 48" role="img" aria-label="DevOps logo">
+    <svg viewBox="0 0 128 64" role="img" aria-label="DevOps infinity logo">
+      <defs>
+        <marker id="devops-arrow-left" markerWidth="7" markerHeight="7" refX="5.2" refY="3.5" orient="auto">
+          <path d="M0 0 7 3.5 0 7Z" className="devops-logo-primary-fill" />
+        </marker>
+        <marker id="devops-arrow-right" markerWidth="7" markerHeight="7" refX="5.2" refY="3.5" orient="auto">
+          <path d="M0 0 7 3.5 0 7Z" className="devops-logo-secondary-fill" />
+        </marker>
+      </defs>
       <path
-        d="M9.5 24c0-6.2 4.1-10.5 9.3-10.5 4.9 0 7.3 3.2 10.2 7.1 2.6 3.5 4.3 5.9 7.1 5.9 2 0 3.4-1.2 3.4-2.5s-1.4-2.5-3.4-2.5c-2.8 0-4.5 2.4-7.1 5.9-2.9 3.9-5.3 7.1-10.2 7.1-5.2 0-9.3-4.3-9.3-10.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        d="M61 25C51 12 42 7 28 7 14 7 6 17 6 32s8 25 22 25c16 0 25-12 36-27"
+        className="devops-logo-primary-stroke"
+        markerEnd="url(#devops-arrow-left)"
       />
-      <circle cx="9.5" cy="24" r="2.5" fill="currentColor" />
-      <circle cx="38.5" cy="24" r="2.5" fill="currentColor" />
-      <path d="M20 8h8M24 4v8M20 40h8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+      <path
+        d="M67 39c10 13 19 18 33 18 14 0 22-10 22-25S114 7 100 7C84 7 75 19 64 34"
+        className="devops-logo-secondary-stroke"
+        markerEnd="url(#devops-arrow-right)"
+      />
+      <circle cx="64" cy="32" r="4" className="devops-logo-node" />
     </svg>
   );
 }

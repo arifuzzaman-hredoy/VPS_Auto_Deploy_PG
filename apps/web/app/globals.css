@@ -1,15 +1,24 @@
-:root {
-  --page: #0f1115;
-  --surface: #15181e;
-  --surface-soft: #1b1f26;
-  --surface-strong: #232832;
-  --text: #f2f4f7;
-  --muted: #a6adb8;
-  --subtle: #7d8592;
-  --line: #2b313b;
-  --line-strong: #3b4350;
-  --focus: #f2f4f7;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+
+:root,
+:root[data-theme="light"] {
+  --page: #f4f4f2;
+  --surface: #ffffff;
+  --surface-soft: #f0f0ed;
+  --surface-strong: #e5e5e1;
+  --text: #171717;
+  --muted: #5f6368;
+  --subtle: #85888d;
+  --line: #ddddda;
+  --line-strong: #b9bbb7;
+  --focus: #111111;
+  --focus-ring: rgba(17, 17, 17, 0.12);
+  --button-hover: #2a2a2a;
+  --code-bg: #17191d;
+  --code-text: #eef0f3;
+  --logo-primary: #111827;
+  --logo-secondary: #6b7280;
+  --logo-node: #111827;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 
   --font-xs: 12px;
   --font-sm: 13px;
@@ -27,7 +36,33 @@
   --line-tight: 1.25;
   --line-normal: 1.5;
   --line-relaxed: 1.65;
+
+  color-scheme: light;
 }
+
+:root[data-theme="dark"] {
+  --page: #0f1115;
+  --surface: #15181e;
+  --surface-soft: #1b1f26;
+  --surface-strong: #232832;
+  --text: #f2f4f7;
+  --muted: #a6adb8;
+  --subtle: #7d8592;
+  --line: #2b313b;
+  --line-strong: #3b4350;
+  --focus: #f2f4f7;
+  --focus-ring: rgba(255, 255, 255, 0.12);
+  --button-hover: #d7dbe2;
+  --code-bg: #0b0d11;
+  --code-text: #dce1e8;
+  --logo-primary: #f4f4f5;
+  --logo-secondary: #9ca3af;
+  --logo-node: #f4f4f5;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
+
+  color-scheme: dark;
+}
+
 
 * {
   box-sizing: border-box;
@@ -35,7 +70,6 @@
 
 html {
   min-height: 100%;
-  color-scheme: dark;
   background: var(--page);
   -webkit-text-size-adjust: 100%;
 }
@@ -45,6 +79,7 @@ body {
   min-height: 100%;
   background: var(--page);
   color: var(--text);
+  transition: background-color 160ms ease, color 160ms ease;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: var(--font-base);
   font-weight: var(--weight-regular);
@@ -114,9 +149,9 @@ summary:focus-visible {
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 54px;
+  height: 38px;
+  flex: 0 0 54px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface-soft);
@@ -124,9 +159,91 @@ summary:focus-visible {
 }
 
 .brand-mark svg {
-  width: 27px;
-  height: 27px;
+  width: 44px;
+  height: 28px;
   display: block;
+}
+
+
+.devops-logo-primary-stroke,
+.devops-logo-secondary-stroke {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.devops-logo-primary-stroke {
+  stroke: var(--logo-primary);
+}
+
+.devops-logo-secondary-stroke {
+  stroke: var(--logo-secondary);
+}
+
+.devops-logo-primary-fill {
+  fill: var(--logo-primary);
+}
+
+.devops-logo-secondary-fill {
+  fill: var(--logo-secondary);
+}
+
+.devops-logo-node {
+  fill: var(--logo-node);
+  stroke: var(--surface-soft);
+  stroke-width: 2;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.theme-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 14px 0 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+}
+
+.theme-switcher button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.theme-switcher button:hover {
+  color: var(--text);
+}
+
+.theme-switcher button.active {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.theme-switcher svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .brand-block strong {
@@ -386,7 +503,7 @@ summary:focus-visible {
 }
 
 .btn:hover {
-  background: #d7dbe2;
+  background: var(--button-hover);
 }
 
 .btn.secondary,
@@ -629,7 +746,7 @@ select.input {
 .textarea:focus,
 select.input:focus {
   border-color: var(--focus);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .inline-actions {
@@ -773,8 +890,8 @@ select.input:focus {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #0b0d11;
-  color: #dce1e8;
+  background: var(--code-bg);
+  color: var(--code-text);
   font: var(--font-xs)/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -917,6 +1034,12 @@ select.input:focus {
 
   .brand-block {
     padding: 0 0 14px;
+  }
+
+
+  .theme-switcher {
+    width: 180px;
+    margin-top: 12px;
   }
 
   .side-nav {

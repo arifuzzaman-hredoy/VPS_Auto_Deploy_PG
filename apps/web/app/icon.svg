@@ -1,7 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#15181e"/>
-  <path d="M10 32c0-8.4 5.6-14.2 12.6-14.2 6.6 0 9.9 4.3 13.8 9.6 3.5 4.8 5.8 8 9.6 8 2.7 0 4.6-1.6 4.6-3.4s-1.9-3.4-4.6-3.4c-3.8 0-6.1 3.2-9.6 8-3.9 5.3-7.2 9.6-13.8 9.6C15.6 46.2 10 40.4 10 32Z" fill="none" stroke="#f2f4f7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="10" cy="32" r="3.4" fill="#f2f4f7"/>
-  <circle cx="52" cy="32" r="3.4" fill="#f2f4f7"/>
-  <path d="M27 10h10M32 5v10M27 54h10" fill="none" stroke="#f2f4f7" stroke-width="3" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#f8fafc"/>
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="7" refX="5.2" refY="3.5" orient="auto">
+      <path d="M0 0 7 3.5 0 7Z" fill="#111827"/>
+    </marker>
+    <marker id="b" markerWidth="7" markerHeight="7" refX="5.2" refY="3.5" orient="auto">
+      <path d="M0 0 7 3.5 0 7Z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <path d="M61 53C51 40 42 35 28 35 14 35 6 45 6 60s8 25 22 25c16 0 25-12 36-27" fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#a)"/>
+  <path d="M67 67c10 13 19 18 33 18 14 0 22-10 22-25s-8-25-22-25c-16 0-25 12-36 27" fill="none" stroke="#6b7280" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#b)"/>
+  <circle cx="64" cy="60" r="5" fill="#111827"/>
 </svg>

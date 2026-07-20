@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AdminAccessGate } from '../components/AdminAccessGate';
+import { useCallback, useEffect, useState } from 'react';
 import { AdminTabs } from '../components/AdminTabs';
 import { AppShell } from '../components/AppShell';
 
@@ -66,16 +65,12 @@ export default function LogsPage() {
       backLabel="Dashboard"
     >
       <AdminTabs active="logs" />
-      <AdminAccessGate>
-        {({ token, lock, handleUnauthorized }) => (
-          <LogsWorkspace token={token} lock={lock} onUnauthorized={handleUnauthorized} />
-        )}
-      </AdminAccessGate>
+      <LogsWorkspace />
     </AppShell>
   );
 }
 
-function LogsWorkspace({ token, lock, onUnauthorized }: { token: string; lock: () => void; onUnauthorized: () => void }) {
+function LogsWorkspace() {
   const [type, setType] = useState<LogType>('all');
   const [projectId, setProjectId] = useState('');
   const [category, setCategory] = useState('');
@@ -85,7 +80,6 @@ function LogsWorkspace({ token, lock, onUnauthorized }: { token: string; lock: (
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
-  const headers = useMemo(() => ({ 'x-deploy-os-admin-token': token }), [token]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -96,11 +90,7 @@ function LogsWorkspace({ token, lock, onUnauthorized }: { token: string; lock: (
     if (search.trim()) params.set('search', search.trim());
 
     try {
-      const response = await fetch(`/api/admin/logs?${params.toString()}`, { headers });
-      if (response.status === 401) {
-        onUnauthorized();
-        throw new Error('Admin session expired.');
-      }
+      const response = await fetch(`/api/admin/logs?${params.toString()}`);
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : 'Logs could not be loaded.');
       setData(payload as LogResponse);
@@ -109,7 +99,7 @@ function LogsWorkspace({ token, lock, onUnauthorized }: { token: string; lock: (
     } finally {
       setLoading(false);
     }
-  }, [category, headers, onUnauthorized, page, projectId, search, type]);
+  }, [category, page, projectId, search, type]);
 
   useEffect(() => {
     const timer = window.setTimeout(loadLogs, 250);
@@ -164,7 +154,6 @@ function LogsWorkspace({ token, lock, onUnauthorized }: { token: string; lock: (
         </div>
         <div className="inline-actions logs-actions">
           <button className="btn secondary" type="button" onClick={loadLogs}>Refresh</button>
-          <button className="btn secondary" type="button" onClick={lock}>Lock</button>
         </div>
       </div>
 

@@ -1,5 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { Client } from 'pg';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
@@ -107,18 +106,6 @@ const entityLabels: Record<EntityKey, string> = {
   dnsProviders: 'DNS providers',
   auditLogs: 'Audit logs',
 };
-
-function valuesEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function readAdminToken(request: FastifyRequest): string {
-  const header = request.headers['x-deploy-os-admin-token'];
-  if (Array.isArray(header)) return header[0] ?? '';
-  return typeof header === 'string' ? header : '';
-}
 
 function stringValue(value: unknown): string {
   if (value === null || value === undefined) return '—';
@@ -525,17 +512,6 @@ async function deleteRecord(entity: EntityKey, id: string, dropPhysical: boolean
 }
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
-  app.addHook('onRequest', async (request, reply) => {
-    const configuredToken = process.env.DEPLOY_OS_ADMIN_TOKEN ?? '';
-    if (!configuredToken) {
-      return reply.code(503).send({ message: 'DEPLOY_OS_ADMIN_TOKEN is not configured on the server.' });
-    }
-    const providedToken = readAdminToken(request);
-    if (!providedToken || !valuesEqual(providedToken, configuredToken)) {
-      return reply.code(401).send({ message: 'Invalid admin access token.' });
-    }
-  });
-
   app.get('/database/overview', async () => {
     const [
       projects,

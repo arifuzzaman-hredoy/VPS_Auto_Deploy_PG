@@ -1,7 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AdminAccessGate } from '../components/AdminAccessGate';
+import { useCallback, useEffect, useState } from 'react';
 import { AdminTabs } from '../components/AdminTabs';
 import { AppShell } from '../components/AppShell';
 
@@ -83,16 +82,12 @@ export default function DatabasePage() {
       backLabel="Dashboard"
     >
       <AdminTabs active="database" />
-      <AdminAccessGate>
-        {({ token, lock, handleUnauthorized }) => (
-          <DatabaseWorkspace token={token} lock={lock} onUnauthorized={handleUnauthorized} />
-        )}
-      </AdminAccessGate>
+      <DatabaseWorkspace />
     </AppShell>
   );
 }
 
-function DatabaseWorkspace({ token, lock, onUnauthorized }: { token: string; lock: () => void; onUnauthorized: () => void }) {
+function DatabaseWorkspace() {
   const [overview, setOverview] = useState<Overview>(initialOverview);
   const [categoryKey, setCategoryKey] = useState('projects');
   const [entity, setEntity] = useState<EntityKey>('projects');
@@ -115,18 +110,13 @@ function DatabaseWorkspace({ token, lock, onUnauthorized }: { token: string; loc
   const [dropPhysicalDatabase, setDropPhysicalDatabase] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const headers = useMemo(() => ({ 'x-deploy-os-admin-token': token }), [token]);
 
   const loadOverview = useCallback(async () => {
-    const response = await fetch('/api/admin/database/overview', { headers });
-    if (response.status === 401) {
-      onUnauthorized();
-      throw new Error('Admin session expired.');
-    }
+    const response = await fetch('/api/admin/database/overview');
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : 'Database overview failed.');
     setOverview(payload as Overview);
-  }, [headers, onUnauthorized]);
+  }, []);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
@@ -136,11 +126,7 @@ function DatabaseWorkspace({ token, lock, onUnauthorized }: { token: string; loc
     if (search.trim()) params.set('search', search.trim());
 
     try {
-      const response = await fetch(`/api/admin/database/records?${params.toString()}`, { headers });
-      if (response.status === 401) {
-        onUnauthorized();
-        throw new Error('Admin session expired.');
-      }
+      const response = await fetch(`/api/admin/database/records?${params.toString()}`);
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : 'Database records failed.');
       setData(payload as RecordResponse);
@@ -149,7 +135,7 @@ function DatabaseWorkspace({ token, lock, onUnauthorized }: { token: string; loc
     } finally {
       setLoading(false);
     }
-  }, [entity, headers, onUnauthorized, page, projectId, search]);
+  }, [entity, page, projectId, search]);
 
   useEffect(() => {
     loadOverview().catch((error) => setMessage(error instanceof Error ? error.message : 'Database overview failed.'));
@@ -193,13 +179,9 @@ function DatabaseWorkspace({ token, lock, onUnauthorized }: { token: string; loc
     try {
       const response = await fetch(`/api/admin/database/records/${deleteTarget.entity}/${deleteTarget.id}`, {
         method: 'DELETE',
-        headers: { ...headers, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmation: 'DELETE', dropPhysicalDatabase }),
       });
-      if (response.status === 401) {
-        onUnauthorized();
-        throw new Error('Admin session expired.');
-      }
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(typeof payload.message === 'string' ? payload.message : 'Delete failed.');
       setMessage(typeof payload.note === 'string' ? payload.note : 'Record deleted successfully.');
@@ -228,7 +210,6 @@ function DatabaseWorkspace({ token, lock, onUnauthorized }: { token: string; loc
         </div>
         <div className="inline-actions">
           <button className="btn secondary" type="button" onClick={refresh}>Refresh</button>
-          <button className="btn secondary" type="button" onClick={lock}>Lock</button>
         </div>
       </section>
 

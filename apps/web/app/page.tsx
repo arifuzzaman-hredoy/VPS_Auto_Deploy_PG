@@ -88,6 +88,8 @@ export default function HomePage() {
               <Link className="btn secondary" href="/projects/demo/env">Manage environment</Link>
               <Link className="btn secondary" href="/projects/demo/domains">Manage domains</Link>
               <Link className="btn secondary" href="/dns-providers">DNS providers</Link>
+              <Link className="btn secondary" href="/database">Database records</Link>
+              <Link className="btn secondary" href="/logs">System logs</Link>
             </div>
           </div>
 

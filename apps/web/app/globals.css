@@ -1,15 +1,15 @@
 :root {
-  --page: #f5f5f3;
-  --surface: #ffffff;
-  --surface-soft: #f0f0ee;
-  --surface-strong: #e8e8e5;
-  --text: #171717;
-  --muted: #666666;
-  --subtle: #8a8a8a;
-  --line: #d8d8d4;
-  --line-strong: #b9b9b4;
-  --focus: #111111;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --page: #0f1115;
+  --surface: #15181e;
+  --surface-soft: #1b1f26;
+  --surface-strong: #232832;
+  --text: #f2f4f7;
+  --muted: #a6adb8;
+  --subtle: #7d8592;
+  --line: #2b313b;
+  --line-strong: #3b4350;
+  --focus: #f2f4f7;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.42);
 
   --font-xs: 12px;
   --font-sm: 13px;
@@ -35,6 +35,7 @@
 
 html {
   min-height: 100%;
+  color-scheme: dark;
   background: var(--page);
   -webkit-text-size-adjust: 100%;
 }
@@ -111,12 +112,21 @@ summary:focus-visible {
 }
 
 .brand-mark {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  border: 2px solid var(--text);
-  border-radius: 7px;
-  background: var(--surface);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.brand-mark svg {
+  width: 27px;
+  height: 27px;
+  display: block;
 }
 
 .brand-block strong {
@@ -368,7 +378,7 @@ summary:focus-visible {
   border: 1px solid var(--text);
   border-radius: 6px;
   background: var(--text);
-  color: #ffffff;
+  color: var(--page);
   font-size: var(--font-base);
   font-weight: var(--weight-semibold);
   line-height: var(--line-tight);
@@ -376,7 +386,7 @@ summary:focus-visible {
 }
 
 .btn:hover {
-  background: #303030;
+  background: #d7dbe2;
 }
 
 .btn.secondary,
@@ -612,14 +622,14 @@ select.input {
 
 .input::placeholder,
 .textarea::placeholder {
-  color: #929292;
+  color: var(--subtle);
 }
 
 .input:focus,
 .textarea:focus,
 select.input:focus {
   border-color: var(--focus);
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
 }
 
 .inline-actions {
@@ -763,8 +773,8 @@ select.input:focus {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #f3f3f1;
-  color: #202020;
+  background: #0b0d11;
+  color: #dce1e8;
   font: var(--font-xs)/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 

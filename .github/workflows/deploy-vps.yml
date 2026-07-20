@@ -1,4 +1,4 @@
-name: Deploy TechTeam Deploy OS to VPS
+name: Deploy Hredoy Deploy OS to VPS
 
 on:
   push:

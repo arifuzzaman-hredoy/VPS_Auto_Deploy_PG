@@ -109,7 +109,7 @@ export default function NewProjectPage() {
   }, [form.slug]);
 
   const yaml = useMemo(() => {
-    return `name: Deploy with TechTeam Deploy OS
+    return `name: Deploy with Hredoy Deploy OS
 
 on:
   push:
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Trigger TechTeam Deploy OS
+      - name: Trigger Hredoy Deploy OS
         env:
           DEPLOY_API_URL: \${{ secrets.DEPLOY_API_URL }}
           DEPLOY_TOKEN: \${{ secrets.DEPLOY_TOKEN }}

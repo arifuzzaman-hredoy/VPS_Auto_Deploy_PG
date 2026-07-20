@@ -36,7 +36,7 @@ const activeMap: Record<AppShellProps['active'], string> = {
 
 export function AppShell({
   active,
-  eyebrow = 'TechTeam Deploy OS',
+  eyebrow = 'Hredoy Deploy OS',
   title,
   description,
   backHref,
@@ -50,9 +50,11 @@ export function AppShell({
     <div className="app-shell">
       <aside className="app-sidebar">
         <Link href="/" className="brand-block" aria-label="Open dashboard">
-          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-mark" aria-hidden="true">
+            <DevOpsLogo />
+          </span>
           <span>
-            <strong>TechTeam Deploy OS</strong>
+            <strong>Hredoy Deploy OS</strong>
             <small>VPS control panel</small>
           </span>
         </Link>
@@ -93,6 +95,24 @@ export function AppShell({
         {children}
       </main>
     </div>
+  );
+}
+
+function DevOpsLogo() {
+  return (
+    <svg viewBox="0 0 48 48" role="img" aria-label="DevOps logo">
+      <path
+        d="M9.5 24c0-6.2 4.1-10.5 9.3-10.5 4.9 0 7.3 3.2 10.2 7.1 2.6 3.5 4.3 5.9 7.1 5.9 2 0 3.4-1.2 3.4-2.5s-1.4-2.5-3.4-2.5c-2.8 0-4.5 2.4-7.1 5.9-2.9 3.9-5.3 7.1-10.2 7.1-5.2 0-9.3-4.3-9.3-10.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="9.5" cy="24" r="2.5" fill="currentColor" />
+      <circle cx="38.5" cy="24" r="2.5" fill="currentColor" />
+      <path d="M20 8h8M24 4v8M20 40h8" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
   );
 }
 

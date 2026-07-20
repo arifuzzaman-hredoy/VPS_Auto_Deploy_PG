@@ -19,4 +19,4 @@ const worker = new Worker('deployments', async (job) => runDeploymentJob(job.dat
 worker.on('completed', (job) => console.log(`Deployment job completed: ${job.id}`));
 worker.on('failed', (job, error) => console.error(`Deployment job failed: ${job?.id}`, error));
 
-console.log('TechTeam Deploy OS runner started.');
+console.log('Hredoy Deploy OS runner started.');

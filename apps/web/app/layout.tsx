@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TechTeam Deploy OS',
-  description: 'Self-hosted VPS deployment control panel'
+  title: 'Hredoy Deploy OS',
+  description: 'Hredoy Deploy OS — self-hosted DevOps deployment control panel'
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

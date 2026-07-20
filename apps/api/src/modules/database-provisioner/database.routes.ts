@@ -21,19 +21,24 @@ function isPgError(error: unknown): error is PgError {
   return error instanceof Error;
 }
 
-async function formatSql(
-  client: Client,
-  template: string,
-  values: string[],
-): Promise<string> {
-  const placeholders = values.map((_, index) => `$${index + 2}`).join(', ');
-  const result = await client.query<{ statement: string }>(
-    `SELECT format($1, ${placeholders}) AS statement`,
-    [template, ...values],
+async function quoteIdentifier(client: Client, value: string): Promise<string> {
+  const result = await client.query<{ quoted: string }>(
+    'SELECT quote_ident($1::text) AS quoted',
+    [value],
   );
-  const statement = result.rows[0]?.statement;
-  if (!statement) throw new Error('PostgreSQL did not return a provisioning statement.');
-  return statement;
+  const quoted = result.rows[0]?.quoted;
+  if (!quoted) throw new Error('PostgreSQL could not quote a database identifier.');
+  return quoted;
+}
+
+async function quoteLiteral(client: Client, value: string): Promise<string> {
+  const result = await client.query<{ quoted: string }>(
+    'SELECT quote_literal($1::text) AS quoted',
+    [value],
+  );
+  const quoted = result.rows[0]?.quoted;
+  if (!quoted) throw new Error('PostgreSQL could not quote a database password.');
+  return quoted;
 }
 
 function publicProvisioningMessage(error: unknown): string {
@@ -104,9 +109,13 @@ export async function databaseRoutes(app: FastifyInstance): Promise<void> {
       );
       const roleExists = roleResult.rows[0]?.exists === true;
 
+      const quotedUsername = await quoteIdentifier(client, body.username);
+      const quotedPassword = await quoteLiteral(client, body.password);
+      const quotedDatabaseName = await quoteIdentifier(client, body.databaseName);
+
       const roleStatement = roleExists
-        ? await formatSql(client, 'ALTER ROLE %I WITH LOGIN PASSWORD %L', [body.username, body.password])
-        : await formatSql(client, 'CREATE ROLE %I WITH LOGIN PASSWORD %L', [body.username, body.password]);
+        ? `ALTER ROLE ${quotedUsername} WITH LOGIN PASSWORD ${quotedPassword}`
+        : `CREATE ROLE ${quotedUsername} WITH LOGIN PASSWORD ${quotedPassword}`;
       await client.query(roleStatement);
 
       const databaseResult = await client.query<{ owner: string }>(
@@ -125,27 +134,18 @@ export async function databaseRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (!databaseExists) {
-        const createDatabaseStatement = await formatSql(
-          client,
-          'CREATE DATABASE %I OWNER %I',
-          [body.databaseName, body.username],
+        await client.query(
+          `CREATE DATABASE ${quotedDatabaseName} OWNER ${quotedUsername}`,
         );
-        await client.query(createDatabaseStatement);
       } else {
-        const ownerStatement = await formatSql(
-          client,
-          'ALTER DATABASE %I OWNER TO %I',
-          [body.databaseName, body.username],
+        await client.query(
+          `ALTER DATABASE ${quotedDatabaseName} OWNER TO ${quotedUsername}`,
         );
-        await client.query(ownerStatement);
       }
 
-      const grantStatement = await formatSql(
-        client,
-        'GRANT ALL PRIVILEGES ON DATABASE %I TO %I',
-        [body.databaseName, body.username],
+      await client.query(
+        `GRANT ALL PRIVILEGES ON DATABASE ${quotedDatabaseName} TO ${quotedUsername}`,
       );
-      await client.query(grantStatement);
     } catch (error) {
       request.log.error(
         {

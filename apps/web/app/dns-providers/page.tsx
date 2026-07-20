@@ -1,43 +1,45 @@
 import { AppShell } from '../components/AppShell';
 
 const providers = [
-  ['Cloudflare', 'Recommended', 'Zone token, DNS edit permission'],
-  ['Namecheap', 'Popular', 'API user, key, whitelisted VPS IP'],
-  ['DigitalOcean DNS', 'Simple', 'Personal access token'],
-  ['AWS Route53', 'Enterprise', 'IAM access key with hosted zone scope'],
-  ['GoDaddy', 'Common', 'API key and secret'],
-  ['Hostinger', 'Manual/API', 'Provider support depends on account'],
-  ['cPanel / WHM', 'Hosting', 'Zone editor or WHM API token'],
-  ['Custom Provider', 'Adapter', 'Use provider adapter interface'],
+  ['Cloudflare', 'Zone token with DNS edit scope'],
+  ['Namecheap', 'API user, key and whitelisted VPS IP'],
+  ['DigitalOcean DNS', 'Personal access token'],
+  ['AWS Route53', 'Scoped IAM access key'],
+  ['GoDaddy', 'API key and secret'],
+  ['cPanel / WHM', 'Zone editor or WHM API token'],
+  ['Custom provider', 'Adapter implementation'],
 ];
 
-const dryRun = `1. Save encrypted provider credential
-2. Test API connection
-3. Preview record changes
-4. Dry-run without writing DNS
-5. Confirm write
-6. Verify TXT + SSL`;
+const safetySteps = [
+  ['1', 'Save credential', 'Encrypt provider credentials in Deploy OS.'],
+  ['2', 'Test connection', 'Verify account access without changing DNS.'],
+  ['3', 'Preview changes', 'Show the exact records that would be created.'],
+  ['4', 'Dry run', 'Validate provider response and permissions.'],
+  ['5', 'Confirm apply', 'Require an explicit final confirmation.'],
+];
 
 export default function DnsProvidersPage() {
   return (
     <AppShell
       active="dns"
-      title="DNS Providers"
-      description="Provider API credential, dry-run, DNS record preview and safe apply workflow. ভুল DNS write থেকে client site protect করার জন্য confirmation flow রাখা হয়েছে।"
+      title="DNS providers"
+      description="Connect provider credentials, test access and review record changes before applying them."
       backHref="/"
-      backLabel="Back to Dashboard"
-      actions={<button className="btn">Add Provider</button>}
+      backLabel="Dashboard"
+      actions={<button className="btn">Add provider</button>}
     >
-      <section className="layout-2-rail">
+      <section className="content-grid">
         <div className="stack">
-          <div className="panel">
+          <section className="panel">
             <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Provider Setup</p>
-                <h2 className="panel-title">Connect a DNS provider</h2>
-                <p className="panel-subtitle">Credential save করার আগে provider select করো। Production এ credential encrypted storage এ যাবে।</p>
+              <div className="section-heading">
+                <span className="section-number">1</span>
+                <div>
+                  <p className="panel-kicker">Connection</p>
+                  <h2 className="panel-title">Provider credentials</h2>
+                  <p className="panel-subtitle">Limit each credential to the smallest required zone and permission scope.</p>
+                </div>
               </div>
-              <span className="badge gray">Encrypted</span>
             </div>
 
             <div className="form-grid">
@@ -48,54 +50,65 @@ export default function DnsProvidersPage() {
                   <option value="namecheap">Namecheap</option>
                   <option value="digitalocean">DigitalOcean DNS</option>
                   <option value="route53">AWS Route53</option>
-                  <option value="custom">Custom Provider</option>
+                  <option value="custom">Custom provider</option>
                 </select>
-                <small>Provider specific adapter later add করা যাবে।</small>
               </div>
               <div className="field">
-                <label>Provider name</label>
-                <input className="input" placeholder="Client Cloudflare Account" />
-                <small>Internal label for team members.</small>
+                <label>Connection label</label>
+                <input className="input" placeholder="Client Cloudflare account" />
               </div>
               <div className="field full">
                 <label>Allowed zone</label>
                 <input className="input" placeholder="example.com" />
-                <small>Credential should only touch this zone.</small>
+                <small>This connection should not modify any other zone.</small>
               </div>
               <div className="field full">
                 <label>Credential JSON</label>
                 <textarea className="textarea" placeholder='{"apiToken":"********"}' />
-                <small>Never paste this into GitHub. Store only inside Deploy OS.</small>
+                <small>The value is encrypted before it is stored.</small>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-              <button className="btn">Save Provider</button>
-              <button className="btn secondary">Test Connection</button>
-              <button className="btn ghost">Dry Run</button>
+            <div className="inline-actions" style={{ marginTop: 16 }}>
+              <button className="btn">Save provider</button>
+              <button className="btn secondary">Test connection</button>
+              <button className="btn secondary">Run dry test</button>
             </div>
-          </div>
+          </section>
 
-          <div className="grid grid-2">
-            {providers.map(([name, tag, description]) => (
-              <div className="card" key={name}>
-                <div className="panel-header" style={{ marginBottom: 8 }}>
-                  <h3>{name}</h3>
-                  <span className={tag === 'Recommended' ? 'badge' : 'badge gray'}>{tag}</span>
+          <section className="panel">
+            <div className="panel-header">
+              <div className="section-heading">
+                <span className="section-number">2</span>
+                <div>
+                  <p className="panel-kicker">Supported integrations</p>
+                  <h2 className="panel-title">Provider requirements</h2>
+                  <p className="panel-subtitle">Choose the provider that manages the project domain.</p>
                 </div>
-                <p>{description}</p>
               </div>
-            ))}
-          </div>
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Provider</th><th>Required access</th></tr></thead>
+                <tbody>
+                  {providers.map(([name, requirement]) => <tr key={name}><td>{name}</td><td>{requirement}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
 
-        <aside className="stack">
-          <div className="panel">
-            <p className="panel-kicker">Safety</p>
-            <h2 className="panel-title">DNS write flow</h2>
-            <pre className="code" style={{ marginTop: 14 }}>{dryRun}</pre>
-          </div>
-          <div className="notice"><strong>Rule:</strong> Auto DNS write করার আগে record preview + dry-run pass না করলে confirm button active হবে না।</div>
+        <aside className="stack summary-panel">
+          <section className="panel">
+            <p className="panel-kicker">Safe write process</p>
+            <h2 className="panel-title">Before changing DNS</h2>
+            <div className="flow" style={{ marginTop: 14 }}>
+              {safetySteps.map(([number, title, text]) => (
+                <div className="step" key={number}><span className="step-no">{number}</span><p><strong>{title}</strong>{text}</p></div>
+              ))}
+            </div>
+          </section>
+          <div className="notice"><strong>Rule:</strong> The apply action stays disabled until connection test and dry run both pass.</div>
         </aside>
       </section>
     </AppShell>

@@ -5,7 +5,6 @@ type NavItem = {
   href: string;
   label: string;
   hint: string;
-  active?: boolean;
 };
 
 type AppShellProps = {
@@ -20,11 +19,11 @@ type AppShellProps = {
 };
 
 const navItems: NavItem[] = [
-  { href: '/', label: 'Dashboard', hint: 'Overview + workflow' },
-  { href: '/projects/new', label: 'New Project', hint: 'Create deployment flow' },
-  { href: '/projects/demo/domains', label: 'Domains', hint: 'DNS + SSL setup' },
-  { href: '/projects/demo/env', label: 'Environment', hint: 'Secrets + runtime env' },
-  { href: '/dns-providers', label: 'DNS Providers', hint: 'API credentials' },
+  { href: '/', label: 'Dashboard', hint: 'Overview' },
+  { href: '/projects/new', label: 'New Project', hint: 'Setup and deploy' },
+  { href: '/projects/demo/domains', label: 'Domains', hint: 'DNS and SSL' },
+  { href: '/projects/demo/env', label: 'Environment', hint: 'Secrets' },
+  { href: '/dns-providers', label: 'DNS Providers', hint: 'Credentials' },
 ];
 
 const activeMap: Record<AppShellProps['active'], string> = {
@@ -50,31 +49,28 @@ export function AppShell({
   return (
     <div className="app-shell">
       <aside className="app-sidebar">
-        <Link href="/" className="brand-block" aria-label="Go to dashboard">
+        <Link href="/" className="brand-block" aria-label="Open dashboard">
           <span className="brand-mark" aria-hidden="true" />
           <span>
-            <strong>TechTeam</strong>
-            <small>Deploy OS</small>
+            <strong>TechTeam Deploy OS</strong>
+            <small>VPS control panel</small>
           </span>
         </Link>
 
         <nav className="side-nav" aria-label="Primary navigation">
-          {navItems.map((item) => {
-            const isActive = item.href === activeHref;
-            return (
-              <Link key={item.href} href={item.href} className={isActive ? 'active' : undefined}>
-                <span>{item.label}</span>
-                <small>{item.hint}</small>
-              </Link>
-            );
-          })}
+          {navItems.map((item) => (
+            <Link key={item.href} href={item.href} className={item.href === activeHref ? 'active' : undefined}>
+              <span>{item.label}</span>
+              <small>{item.hint}</small>
+            </Link>
+          ))}
         </nav>
 
-        <div className="sidebar-note">
+        <div className="sidebar-note" aria-label="Runner status">
           <span className="status-dot" />
           <div>
-            <strong>VPS Runner Online</strong>
-            <p>GitHub push → self-hosted runner → PM2 live deploy.</p>
+            <strong>Runner connected</strong>
+            <p>GitHub push → build → health check → live.</p>
           </div>
         </div>
       </aside>
@@ -100,9 +96,9 @@ export function AppShell({
   );
 }
 
-export function MiniMetric({ label, value, tone = 'default' }: { label: string; value: string; tone?: 'default' | 'good' | 'warning' }) {
+export function MiniMetric({ label, value }: { label: string; value: string; tone?: 'default' | 'good' | 'warning' }) {
   return (
-    <div className={`mini-metric ${tone}`}>
+    <div className="mini-metric">
       <strong>{value}</strong>
       <span>{label}</span>
     </div>

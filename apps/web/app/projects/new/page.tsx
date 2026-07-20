@@ -376,14 +376,14 @@ jobs:
   return (
     <AppShell
       active="new-project"
-      title="Create Project"
-      description="Repo, deploy key, GitHub Actions YAML, .env, database and domain setup — এক page-এ clear step-by-step workflow."
+      title="Create a project"
+      description="Complete the setup from top to bottom. Required information comes first; optional configuration is clearly separated."
       backHref="/"
-      backLabel="Back to Dashboard"
+      backLabel="Dashboard"
       actions={
         <>
           <button
-            className="btn ghost"
+            className="btn secondary"
             type="button"
             onClick={() => {
               setForm(initialForm);
@@ -395,89 +395,95 @@ jobs:
               setSaveStatus({ type: "idle", message: "" });
             }}
           >
-            Reset form
+            Reset
           </button>
           <button className="btn" type="button" onClick={saveProject} disabled={saveStatus.type === "loading"}>
-            {saveStatus.type === "loading" ? "Saving..." : "Save Project"}
+            {saveStatus.type === "loading" ? "Saving…" : "Save project"}
           </button>
         </>
       }
     >
-      <div className="process-strip">
+      <div className="process-strip" aria-label="Project setup steps">
         {[
-          ["1", "Source", "Name, slug, repo"],
-          ["2", "Key", "Deploy key + YAML"],
-          ["3", "Env", "Secrets upload"],
-          ["4", "Database", "Optional Postgres"],
-          ["5", "Review", "Save + next steps"],
-        ].map(([no, title, text], index) => (
-          <div key={no} className={`process-item ${completedCount > index ? "done" : ""}`}>
-            <span>{no}</span>
+          ["1", "Source", "Project and repository"],
+          ["2", "Runtime", "Commands and deploy key"],
+          ["3", "Environment", "Secrets and database"],
+          ["4", "Workflow", "GitHub Actions"],
+          ["5", "Review", "Validate and save"],
+        ].map(([number, title, text], index) => (
+          <div key={number} className={`process-item ${completedCount > index ? "done" : ""}`}>
+            <span>{number}</span>
             <strong>{title}</strong>
             <small>{text}</small>
           </div>
         ))}
       </div>
 
-      <section className="layout-2-rail">
+      <section className="content-grid">
         <div className="stack">
-          <div className="panel">
+          <section className="panel" aria-labelledby="project-source-title">
             <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Step 01</p>
-                <h2 className="panel-title">Project Source</h2>
-                <p className="panel-subtitle">Client project কোন GitHub repo থেকে deploy হবে সেটা set করো।</p>
+              <div className="section-heading">
+                <span className="section-number">1</span>
+                <div>
+                  <p className="panel-kicker">Required</p>
+                  <h2 className="panel-title" id="project-source-title">Project source</h2>
+                  <p className="panel-subtitle">Identify the project and the GitHub repository that will be deployed.</p>
+                </div>
               </div>
               <span className="badge">Required</span>
             </div>
 
             <div className="form-grid">
-              <Field label="Project name" hint="Example: School ERP / Clinic Website">
-                <input className="input" value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="Project name" />
+              <Field label="Project name" hint="A readable name, for example School ERP">
+                <input className="input" value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="School ERP" />
               </Field>
-              <Field label="Project slug" hint="URL-safe internal ID">
-                <input className="input" value={form.slug} onChange={(event) => updateForm("slug", slugify(event.target.value))} placeholder="project-slug" />
+              <Field label="Project slug" hint="Used internally in URLs and deployment names">
+                <input className="input" value={form.slug} onChange={(event) => updateForm("slug", slugify(event.target.value))} placeholder="school-erp" />
               </Field>
-              <Field label="GitHub repo URL" hint="Private/public repo both supported" full>
-                <input className="input" value={form.repoUrl} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repo" />
+              <Field label="GitHub repository URL" hint="Public or private repository" full>
+                <input className="input" value={form.repoUrl} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repository.git" />
               </Field>
-              <Field label="Default branch" hint="Usually main or master">
+              <Field label="Default branch" hint="The branch that triggers production deploys">
                 <input className="input" value={form.branch} onChange={(event) => updateForm("branch", event.target.value)} placeholder="main" />
               </Field>
-              <Field label="Primary domain" hint="Optional for now">
+              <Field label="Primary domain" hint="Optional. You can add it later">
                 <input className="input" value={form.domain} onChange={(event) => updateForm("domain", event.target.value)} placeholder="app.example.com" />
               </Field>
             </div>
-          </div>
+          </section>
 
-          <div className="panel">
+          <section className="panel" aria-labelledby="runtime-title">
             <div className="panel-header">
-              <div>
-                <p className="panel-kicker">Step 02</p>
-                <h2 className="panel-title">Deploy Key & Runtime Commands</h2>
-                <p className="panel-subtitle">Private repo হলে generated public key GitHub repo deploy key হিসেবে add করতে হবে।</p>
+              <div className="section-heading">
+                <span className="section-number">2</span>
+                <div>
+                  <p className="panel-kicker">Required</p>
+                  <h2 className="panel-title" id="runtime-title">Runtime and repository access</h2>
+                  <p className="panel-subtitle">Set the build commands, then generate a read-only deploy key for the repository.</p>
+                </div>
               </div>
-              <span className={deployKeyGenerated ? "badge" : "badge gray"}>{deployKeyGenerated ? "Generated" : "Waiting"}</span>
+              <span className="badge">{deployKeyGenerated ? "Key ready" : "Key required"}</span>
             </div>
 
             <div className="form-grid three">
-              <Field label="Build command" hint="Next.js default">
+              <Field label="Build command" hint="Runs before the app starts">
                 <input className="input" value={form.buildCommand} onChange={(event) => updateForm("buildCommand", event.target.value)} />
               </Field>
-              <Field label="Start command" hint="PM2/Docker runtime">
+              <Field label="Start command" hint="Runs the production process">
                 <input className="input" value={form.startCommand} onChange={(event) => updateForm("startCommand", event.target.value)} />
               </Field>
-              <Field label="App port" hint="Example: 3000 / 4000">
-                <input className="input" value={form.appPort} onChange={(event) => updateForm("appPort", event.target.value)} />
+              <Field label="Application port" hint="The local port used by the app">
+                <input className="input" inputMode="numeric" value={form.appPort} onChange={(event) => updateForm("appPort", event.target.value)} />
               </Field>
             </div>
 
-            <div className="stack" style={{ marginTop: 16 }}>
-              <div className="notice good">
-                <strong>How it works:</strong> Deploy OS project draft save করবে, real Ed25519 key pair generate করবে, public key এখানে দেখাবে এবং private key encrypted অবস্থায় server database-এ রাখবে। Private key browser-এ পাঠানো হবে না।
+            <div className="stack" style={{ marginTop: 18 }}>
+              <div className="notice">
+                <strong>Deploy key:</strong> Deploy OS stores the private key encrypted on the server. Only the public key is shown here for GitHub.
               </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <div className="inline-actions">
                 <button
                   className="btn"
                   type="button"
@@ -485,12 +491,12 @@ jobs:
                   disabled={deployKeyStatus.type === "loading" || saveStatus.type === "loading"}
                 >
                   {deployKeyStatus.type === "loading"
-                    ? "Generating Real Key..."
+                    ? "Generating key…"
                     : deployKeyGenerated
-                      ? "Load Active Deploy Key"
-                      : "Generate Real Deploy Key"}
+                      ? "Load active key"
+                      : "Generate deploy key"}
                 </button>
-                {projectId ? <span className="badge gray">Draft saved: {projectId.slice(0, 10)}...</span> : null}
+                {projectId ? <span className="badge">Draft: {projectId.slice(0, 10)}…</span> : null}
               </div>
 
               {deployKeyStatus.message ? (
@@ -501,137 +507,156 @@ jobs:
 
               {deployKeyGenerated ? (
                 <div className="stack">
-                  <div>
-                    <strong style={{ display: "block", marginBottom: 8 }}>Public deploy key</strong>
-                    <pre
-                      className="code"
-                      style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-all" }}
-                    >
-                      {deployKeyStatus.publicKey}
-                    </pre>
+                  <div className="field">
+                    <label>Public deploy key</label>
+                    <pre className="code" style={{ overflowWrap: "anywhere", wordBreak: "break-all" }}>{deployKeyStatus.publicKey}</pre>
                   </div>
                   <div className="review-list">
                     <ReviewRow label="Fingerprint" value={deployKeyStatus.fingerprint || "Unavailable"} />
-                    <ReviewRow label="Private key" value="Encrypted on server — never shown" />
+                    <ReviewRow label="Private key" value="Encrypted on server" />
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                    <button
-                      className="btn ghost"
-                      type="button"
-                      onClick={() => copyText("key", deployKeyStatus.publicKey)}
-                    >
+                  <div className="inline-actions">
+                    <button className="btn secondary" type="button" onClick={() => copyText("key", deployKeyStatus.publicKey)}>
                       {copiedTarget === "key" ? "Copied" : "Copy public key"}
                     </button>
                   </div>
                   <div className="notice">
-                    GitHub repo → <strong>Settings</strong> → <strong>Deploy keys</strong> → <strong>Add deploy key</strong> → এই public key paste করো। <strong>Allow write access</strong> unchecked রাখবে।
+                    Add the key in GitHub → Repository settings → Deploy keys. Keep <strong>Allow write access</strong> disabled.
                   </div>
                 </div>
               ) : (
-                <pre className="code">Fill Project Source, then click Generate Real Deploy Key.</pre>
+                <div className="empty-state">Complete the project source section, then generate the deploy key.</div>
               )}
             </div>
-          </div>
+          </section>
 
-          <div className="grid grid-2">
-            <div className="panel">
-              <div className="panel-header">
+          <section className="panel" aria-labelledby="environment-title">
+            <div className="panel-header">
+              <div className="section-heading">
+                <span className="section-number">3</span>
                 <div>
-                  <p className="panel-kicker">Step 03</p>
-                  <h2 className="panel-title">.env Upload</h2>
-                  <p className="panel-subtitle">Secrets UI-তে value দেখাবে না, শুধু key count দেখাবে।</p>
+                  <p className="panel-kicker">Configuration</p>
+                  <h2 className="panel-title" id="environment-title">Environment and database</h2>
+                  <p className="panel-subtitle">Secrets and database settings are separate so you can use either one independently.</p>
                 </div>
-                <span className={envErrors.length ? "badge warn" : "badge gray"}>{Object.keys(envVariables).length} keys</span>
               </div>
-
-              <label className="upload-box">
-                <input type="file" accept=".env,.txt" onChange={(event) => handleEnvFile(event.target.files?.[0])} />
-                <strong>{form.envFileName || "Choose .env file"}</strong>
-                <small>Only key names are previewed. Values stay hidden.</small>
-              </label>
-
-              {envErrors.length ? (
-                <div className="toast error">
-                  {envErrors.map((error) => <div key={error}>{error}</div>)}
-                </div>
-              ) : form.envFileName ? (
-                <div className="toast success">Parsed successfully: {Object.keys(envVariables).join(", ") || "No variables found"}</div>
-              ) : null}
             </div>
 
-            <div className="panel">
-              <div className="panel-header">
+            <div className="grid grid-2">
+              <div className="stack">
                 <div>
-                  <p className="panel-kicker">Step 04</p>
-                  <h2 className="panel-title">Database Setup</h2>
-                  <p className="panel-subtitle">Blank রাখলে database provisioning skip হবে। Password minimum 12 chars.</p>
+                  <h3 style={{ margin: 0 }}>Environment variables</h3>
+                  <p className="panel-subtitle">Upload a .env file. Values remain hidden in the interface.</p>
                 </div>
-                <span className={databaseProvisioned || databaseReady ? "badge" : "badge gray"}>{databaseProvisioned ? "Provisioned" : databaseReady ? "Ready" : "Optional"}</span>
+                <label className="upload-box">
+                  <input type="file" accept=".env,.txt" onChange={(event) => handleEnvFile(event.target.files?.[0])} />
+                  <strong>{form.envFileName || "Choose .env file"}</strong>
+                  <small>{form.envFileName ? `${Object.keys(envVariables).length} keys parsed` : ".env or .txt"}</small>
+                </label>
+                {envErrors.length ? (
+                  <div className="toast error">{envErrors.map((error) => <div key={error}>{error}</div>)}</div>
+                ) : form.envFileName ? (
+                  <div className="toast success">Parsed keys: {Object.keys(envVariables).join(", ") || "No variables found"}</div>
+                ) : null}
               </div>
 
               <div className="stack">
-                <input className="input" value={form.databaseName} onChange={(event) => updateForm("databaseName", event.target.value)} placeholder="database_name" />
-                <input className="input" value={form.databaseUser} onChange={(event) => updateForm("databaseUser", event.target.value)} placeholder="database_user" />
-                <input className="input" value={form.databasePassword} onChange={(event) => updateForm("databasePassword", event.target.value)} placeholder="strong database password" type="password" />
+                <div>
+                  <h3 style={{ margin: 0 }}>PostgreSQL database</h3>
+                  <p className="panel-subtitle">Optional. Leave every field empty to skip provisioning.</p>
+                </div>
+                <Field label="Database name">
+                  <input className="input" value={form.databaseName} onChange={(event) => updateForm("databaseName", event.target.value)} placeholder="project_database" />
+                </Field>
+                <Field label="Database user">
+                  <input className="input" value={form.databaseUser} onChange={(event) => updateForm("databaseUser", event.target.value)} placeholder="project_user" />
+                </Field>
+                <Field label="Database password" hint="Minimum 12 characters">
+                  <input className="input" value={form.databasePassword} onChange={(event) => updateForm("databasePassword", event.target.value)} placeholder="Strong password" type="password" />
+                </Field>
+                <span className="badge">{databaseProvisioned ? "Provisioned" : databaseReady ? "Ready to provision" : "Optional"}</span>
               </div>
             </div>
-          </div>
+          </section>
+
+          <section className="panel" aria-labelledby="workflow-title">
+            <div className="panel-header">
+              <div className="section-heading">
+                <span className="section-number">4</span>
+                <div>
+                  <p className="panel-kicker">Client repository</p>
+                  <h2 className="panel-title" id="workflow-title">GitHub Actions workflow</h2>
+                  <p className="panel-subtitle">Add this workflow and the two repository secrets after the project is saved.</p>
+                </div>
+              </div>
+              <button className="btn secondary" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy YAML"}</button>
+            </div>
+
+            <details className="details-box">
+              <summary>View generated workflow YAML</summary>
+              <div className="details-content"><pre className="code tall">{yaml}</pre></div>
+            </details>
+
+            <div className="review-list" style={{ marginTop: 16 }}>
+              <ReviewRow label="DEPLOY_API_URL" value="https://vps.techteamlead.com" />
+              <ReviewRow label="DEPLOY_TOKEN" value={deployToken} />
+            </div>
+          </section>
         </div>
 
-        <aside className="stack">
-          <div className="panel">
-            <div className="panel-header">
+        <aside className="stack summary-panel">
+          <section className="panel">
+            <div className="progress-row">
               <div>
-                <p className="panel-kicker">Progress</p>
-                <h2 className="panel-title">{progress}% Ready</h2>
+                <p className="panel-kicker">Setup progress</p>
+                <h2 className="panel-title">{progress}% complete</h2>
               </div>
-              <span className="badge gray">{completedCount}/{completionItems.length}</span>
+              <span className="badge">{completedCount}/{completionItems.length}</span>
             </div>
             <div className="progress-bar"><span style={{ width: `${progress}%` }} /></div>
-            <div className="checklist" style={{ marginTop: 16 }}>
+            <div className="checklist">
               {completionItems.map((item) => (
                 <div key={item.label} className={`check-row ${item.done ? "done" : ""}`}>
-                  <span className="check-icon">{item.done ? "✓" : "•"}</span>
-                  <strong>{item.label}</strong>
+                  <span className="check-icon">{item.done ? "✓" : ""}</span>
+                  <span>{item.label}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </section>
 
-          <div className="panel">
+          <section className="panel">
             <p className="panel-kicker">Review</p>
-            <h2 className="panel-title">Before Save</h2>
-            <div className="review-list" style={{ marginTop: 16 }}>
+            <h2 className="panel-title">Project summary</h2>
+            <div className="review-list" style={{ marginTop: 14 }}>
               <ReviewRow label="Project" value={form.name || "Not set"} />
               <ReviewRow label="Slug" value={form.slug || "Not set"} />
-              <ReviewRow label="Repo" value={form.repoUrl || "Not set"} />
+              <ReviewRow label="Repository" value={form.repoUrl || "Not set"} />
               <ReviewRow label="Branch" value={form.branch || "main"} />
               <ReviewRow label="Domain" value={form.domain || "Not set"} />
-              <ReviewRow label="DB" value={form.databaseName ? `${form.databaseName}${databaseProvisioned ? " · Provisioned" : " · Not provisioned"}` : "Skipped"} />
-              <ReviewRow label="DB Pass" value={mask(form.databasePassword)} />
-              <ReviewRow label="Env" value={form.envFileName || "Not uploaded"} />
+              <ReviewRow label="Port" value={form.appPort || "Not set"} />
+              <ReviewRow label="Database" value={form.databaseName ? `${form.databaseName}${databaseProvisioned ? " · provisioned" : ""}` : "Skipped"} />
+              <ReviewRow label="DB password" value={mask(form.databasePassword)} />
+              <ReviewRow label="Environment" value={form.envFileName || "Not uploaded"} />
             </div>
-            <button className="btn" type="button" onClick={saveProject} disabled={saveStatus.type === "loading"} style={{ width: "100%", marginTop: 16 }}>
-              {saveStatus.type === "loading" ? "Saving..." : "Save Project & Continue"}
-            </button>
-            {saveStatus.message ? <div className={`toast ${saveStatus.type === "success" ? "success" : saveStatus.type === "error" ? "error" : ""}`}>{saveStatus.message}</div> : null}
-          </div>
 
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">GitHub Actions</p>
-                <h2 className="panel-title">Generated YAML</h2>
+            <button className="btn" type="button" onClick={saveProject} disabled={saveStatus.type === "loading"} style={{ width: "100%", marginTop: 16 }}>
+              {saveStatus.type === "loading" ? "Saving project…" : "Save project and continue"}
+            </button>
+
+            {saveStatus.message ? (
+              <div className={`toast ${saveStatus.type === "success" ? "success" : saveStatus.type === "error" ? "error" : ""}`} style={{ marginTop: 12 }}>
+                {saveStatus.message}
               </div>
-              <button className="btn ghost" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy"}</button>
-            </div>
-            <pre className="code tall">{yaml}</pre>
-            <div className="notice" style={{ marginTop: 14 }}>
-              Client repo secrets add করো:<br />
-              <strong>DEPLOY_API_URL</strong> = https://vps.techteamlead.com<br />
-              <strong>DEPLOY_TOKEN</strong> = {deployToken}
-            </div>
-          </div>
+            ) : null}
+          </section>
+
+          <section className="panel">
+            <p className="panel-kicker">Next action</p>
+            <h2 className="panel-title">
+              {completionItems.find((item) => !item.done)?.label || "Ready to save"}
+            </h2>
+            <p className="panel-subtitle">Work through the page from top to bottom. Optional database fields may remain empty.</p>
+          </section>
         </aside>
       </section>
     </AppShell>
@@ -652,7 +677,7 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="review-row">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong title={value}>{value}</strong>
     </div>
   );
 }

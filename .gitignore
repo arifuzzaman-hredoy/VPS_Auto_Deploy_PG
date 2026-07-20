@@ -41,3 +41,5 @@ infra/docker-compose.yml.bak
 # prisma
 apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
+
+*.tsbuildinfo

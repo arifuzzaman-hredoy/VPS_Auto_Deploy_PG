@@ -15,6 +15,9 @@ const entityKeys = [
   'deploymentLogs',
   'domains',
   'dnsProviders',
+  'githubInstallations',
+  'githubRepositories',
+  'githubWebhookDeliveries',
   'auditLogs',
 ] as const;
 
@@ -86,6 +89,12 @@ const categories = [
     entities: ['projectDatabases', 'domains', 'dnsProviders'] as EntityKey[],
   },
   {
+    key: 'github',
+    label: 'GitHub',
+    description: 'GitHub App installations, repositories and webhook deliveries',
+    entities: ['githubInstallations', 'githubRepositories', 'githubWebhookDeliveries'] as EntityKey[],
+  },
+  {
     key: 'system',
     label: 'System',
     description: 'Audit trail and system actions',
@@ -104,6 +113,9 @@ const entityLabels: Record<EntityKey, string> = {
   deploymentLogs: 'Deployment logs',
   domains: 'Domains',
   dnsProviders: 'DNS providers',
+  githubInstallations: 'GitHub installations',
+  githubRepositories: 'GitHub repositories',
+  githubWebhookDeliveries: 'GitHub webhook deliveries',
   auditLogs: 'Audit logs',
 };
 
@@ -368,6 +380,67 @@ async function loadRecords(entity: EntityKey): Promise<DatabaseRecord[]> {
         fields: [field('Allowed zone', row.allowedZone), field('Credential', 'Encrypted and hidden'), field('Updated', row.updatedAt)],
       }));
     }
+    case 'githubInstallations': {
+      const rows = await prisma.gitHubInstallation.findMany({
+        orderBy: { updatedAt: 'desc' },
+        include: { _count: { select: { repositories: true } } },
+        take: 2000,
+      });
+      return rows.map((row: any) => ({
+        id: row.id,
+        entity,
+        title: row.accountLogin,
+        subtitle: `Installation ${row.externalId}`,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        fields: [
+          field('Account type', row.accountType),
+          field('Repository selection', row.repositorySelection),
+          field('Repositories', row._count.repositories),
+          field('Updated', row.updatedAt),
+        ],
+      }));
+    }
+    case 'githubRepositories': {
+      const rows = await prisma.gitHubRepository.findMany({
+        orderBy: { updatedAt: 'desc' },
+        include: { installation: { select: { accountLogin: true, externalId: true } } },
+        take: 3000,
+      });
+      return rows.map((row: any) => ({
+        id: row.id,
+        entity,
+        title: row.fullName,
+        subtitle: row.private ? 'Private repository' : 'Public repository',
+        status: row.archived ? 'Archived' : row.disabled ? 'Disabled' : 'Available',
+        createdAt: row.createdAt.toISOString(),
+        fields: [
+          field('GitHub ID', row.githubId),
+          field('Installation', `${row.installation.accountLogin} (${row.installation.externalId})`),
+          field('Default branch', row.defaultBranch),
+          field('URL', row.htmlUrl),
+          field('GitHub updated', row.githubUpdatedAt),
+        ],
+      }));
+    }
+    case 'githubWebhookDeliveries': {
+      const rows = await prisma.gitHubWebhookDelivery.findMany({ orderBy: { receivedAt: 'desc' }, take: 3000 });
+      return rows.map((row: any) => ({
+        id: row.deliveryId,
+        entity,
+        title: `${row.event}${row.action ? ` · ${row.action}` : ''}`,
+        subtitle: row.repositoryFullName || row.deliveryId,
+        status: row.status,
+        createdAt: row.receivedAt.toISOString(),
+        fields: [
+          field('Installation', row.installationId),
+          field('Repository', row.repositoryFullName),
+          field('Queued projects', row.projectCount),
+          field('Processed', row.processedAt),
+          field('Error', row.errorMessage),
+        ],
+      }));
+    }
     case 'auditLogs': {
       const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 3000 });
       return rows.map((row: any) => ({
@@ -504,6 +577,26 @@ async function deleteRecord(entity: EntityKey, id: string, dropPhysical: boolean
       const row = await prisma.dnsProviderCredential.delete({ where: { id } });
       return { deleted: row.providerName };
     }
+    case 'githubInstallations': {
+      const row = await prisma.gitHubInstallation.delete({ where: { id } });
+      await prisma.project.updateMany({
+        where: { githubInstallationId: row.externalId, deploymentMethod: 'GITHUB_APP' },
+        data: { autoDeployEnabled: false, status: 'GITHUB_APP_DISCONNECTED' },
+      });
+      return { deleted: row.accountLogin };
+    }
+    case 'githubRepositories': {
+      const row = await prisma.gitHubRepository.delete({ where: { id } });
+      await prisma.project.updateMany({
+        where: { githubRepositoryId: row.githubId, deploymentMethod: 'GITHUB_APP' },
+        data: { autoDeployEnabled: false, status: 'GITHUB_REPOSITORY_DISCONNECTED' },
+      });
+      return { deleted: row.fullName };
+    }
+    case 'githubWebhookDeliveries': {
+      const row = await prisma.gitHubWebhookDelivery.delete({ where: { deliveryId: id } });
+      return { deleted: row.deliveryId };
+    }
     case 'auditLogs': {
       const row = await prisma.auditLog.delete({ where: { id } });
       return { deleted: row.id };
@@ -524,6 +617,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       deploymentLogs,
       domains,
       dnsProviders,
+      githubInstallations,
+      githubRepositories,
+      githubWebhookDeliveries,
       auditLogs,
       projectOptions,
     ] = await Promise.all([
@@ -537,6 +633,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       prisma.deploymentLog.count(),
       prisma.domain.count(),
       prisma.dnsProviderCredential.count(),
+      prisma.gitHubInstallation.count(),
+      prisma.gitHubRepository.count(),
+      prisma.gitHubWebhookDelivery.count(),
       prisma.auditLog.count(),
       prisma.project.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, slug: true } }),
     ]);
@@ -552,6 +651,9 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       deploymentLogs,
       domains,
       dnsProviders,
+      githubInstallations,
+      githubRepositories,
+      githubWebhookDeliveries,
       auditLogs,
     };
 

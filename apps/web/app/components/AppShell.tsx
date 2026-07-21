@@ -9,7 +9,7 @@ type NavItem = {
 };
 
 type AppShellProps = {
-  active: 'dashboard' | 'new-project' | 'domains' | 'environment' | 'dns' | 'database' | 'logs';
+  active: 'dashboard' | 'new-project' | 'github' | 'domains' | 'environment' | 'dns' | 'database' | 'logs';
   eyebrow?: string;
   title: string;
   description: string;
@@ -22,6 +22,7 @@ type AppShellProps = {
 const navItems: NavItem[] = [
   { href: '/', label: 'Dashboard', hint: 'Overview' },
   { href: '/projects/new', label: 'New Project', hint: 'Setup and deploy' },
+  { href: '/github', label: 'GitHub', hint: 'Apps and repositories' },
   { href: '/dns-providers', label: 'DNS Providers', hint: 'Credentials' },
   { href: '/database', label: 'Database', hint: 'All saved records' },
   { href: '/logs', label: 'Logs', hint: 'Activity and deploy logs' },
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
 const activeMap: Record<AppShellProps['active'], string> = {
   dashboard: '/',
   'new-project': '/projects/new',
+  github: '/github',
   domains: '/projects/demo/domains',
   environment: '/projects/demo/env',
   dns: '/dns-providers',

@@ -1,6 +1,6 @@
 # Hredoy Deploy OS
 
-Hredoy Deploy OS is a self-hosted, Vercel-style deployment control plane for a VPS. A project is connected once, then every push to its production branch can trigger an isolated Docker build and a zero-downtime deployment through GitHub Actions.
+Hredoy Deploy OS is a self-hosted, Vercel-style deployment control plane for a VPS. Projects can connect through a Vercel-like GitHub App or repository-managed GitHub Actions; both methods use the same isolated Docker deployment and rollback engine.
 
 ## What is implemented
 
@@ -10,7 +10,8 @@ Hredoy Deploy OS is a self-hosted, Vercel-style deployment control plane for a V
 - Redis/BullMQ deployment queue
 - Real per-project Ed25519 GitHub deploy keys
 - Real per-project CI/CD tokens stored as hashes
-- GitHub Actions trigger workflow
+- Vercel-like GitHub App installation, repository import and signed push webhooks
+- GitHub Actions trigger workflow with production-status polling
 - Framework detection for Next.js, Vite, Node.js, static sites and custom Dockerfiles
 - Docker image build with BuildKit secrets
 - Optional PostgreSQL database provisioning and Prisma migration
@@ -23,39 +24,40 @@ Hredoy Deploy OS is a self-hosted, Vercel-style deployment control plane for a V
 ## Deployment flow
 
 ```text
-GitHub push
-→ GitHub Actions calls Deploy OS API
-→ API validates repository, branch and project token
-→ deployment is queued in Redis
-→ runner locks the project to prevent concurrent route races
-→ exact commit is fetched and verified against the production branch
-→ encrypted environment is decrypted only into temporary 0600 files
-→ framework is detected and a Docker image is built
-→ optional database migration runs
-→ new container starts on a private host port
-→ health endpoint must return HTTP 2xx/3xx
-→ verified custom domain or default apps subdomain is switched in Nginx
-→ database state is committed as LIVE
-→ previous container is removed
+GitHub App push webhook ─────┐
+                            ├→ common deployment queue
+GitHub Actions API trigger ──┤
+                            ├→ exact commit checkout
+Manual Deploy now ───────────┘  → framework detection
+                               → isolated Docker image
+                               → optional migration
+                               → new-container health check
+                               → Nginx route switch
+                               → LIVE or safe rollback
 ```
 
-If a build, migration, container, health check, SSL or proxy step fails, the new container is removed and the previous live deployment remains available.
+Only one automatic method is active per project, preventing duplicate deployments. Manual deployment remains available in both modes. If build, migration, container, health, SSL or proxy activation fails, the replacement is cleaned up and the previous live deployment remains available.
 
-## Project setup in the control panel
+## GitHub connection methods
 
-1. Open **New Project**.
-2. Enter the GitHub repository, branch, optional monorepo root directory, runtime overrides, port and health path.
-3. Generate the repository deploy key.
-4. Add its public key in GitHub: **Settings → Deploy keys**. Keep write access disabled.
-5. Upload production environment variables if needed.
-6. Provision an optional PostgreSQL database if needed.
-7. Save the project and copy the one-time `DEPLOY_TOKEN`.
-8. Add repository secrets:
-   - `DEPLOY_API_URL=https://vps.techteamlead.com`
-   - `DEPLOY_TOKEN=<generated project token>`
-9. Create `.github/workflows/deploy.yml` from the generated workflow.
-10. Push to the configured production branch.
-11. Open the project dashboard to follow deployment logs and live status.
+### GitHub App — recommended
+
+1. Register the GitHub App once and configure its setup URL, signed webhook and minimum repository permissions.
+2. Open **GitHub** in Deploy OS and install the App for selected repositories.
+3. Import a repository, select its production branch and optional monorepo root.
+4. Push to the selected branch. The signed webhook queues the exact commit automatically.
+
+GitHub App mode uses short-lived installation tokens. It does not require a repository deploy key, personal access token, workflow file or GitHub Actions secret.
+
+### GitHub Actions
+
+1. Create the project and select **GitHub Actions**.
+2. Generate the read-only repository deploy key and one-time `DEPLOY_TOKEN`.
+3. Add `DEPLOY_API_URL` and `DEPLOY_TOKEN` as repository secrets.
+4. Copy the generated `.github/workflows/deploy.yml`.
+5. Push to the production branch. The workflow queues the deployment and waits until it becomes `LIVE` or `FAILED`.
+
+See [docs/GITHUB_APP_SETUP.md](docs/GITHUB_APP_SETUP.md) for the exact GitHub App registration and both setup flows.
 
 ## Local validation
 
@@ -77,7 +79,7 @@ cd /var/www/techteam-deploy-os
 bash scripts/deploy-vps.sh
 ```
 
-The script validates required environment variables, synchronizes the repository, starts PostgreSQL/Redis, updates dependencies only when package metadata changes, synchronizes Prisma, runs typecheck/build, gracefully reloads PM2 services and verifies local and public health endpoints.
+The script validates required environment variables, synchronizes the repository, starts PostgreSQL/Redis, updates dependencies only when package metadata changes, synchronizes Prisma, runs the affected typecheck/build plan, recreates Deploy OS PM2 services with direct Node entrypoints when required, and verifies local and public health endpoints.
 
 ## Required VPS environment
 

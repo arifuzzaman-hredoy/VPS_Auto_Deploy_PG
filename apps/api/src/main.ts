@@ -9,6 +9,9 @@ import { envRoutes } from './modules/environment/env.routes.js';
 import { databaseRoutes } from './modules/database-provisioner/database.routes.js';
 import { dnsProviderRoutes } from './modules/dns-providers/dns-provider.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import { githubRoutes } from './modules/github/github.routes.js';
+import { githubWebhookRoutes } from './modules/github/github-webhook.routes.js';
+import { closeDeploymentQueue } from './lib/deployment-queue.js';
 import { extractProjectIdFromPath, writeAuditLog } from './lib/audit.js';
 import { prisma } from './lib/prisma.js';
 
@@ -54,6 +57,8 @@ app.addHook('onResponse', async (request, reply) => {
   }
 });
 
+await app.register(githubWebhookRoutes, { prefix: '/api/github/webhook' });
+await app.register(githubRoutes, { prefix: '/api/github' });
 await app.register(projectRoutes, { prefix: '/api/projects' });
 await app.register(deploymentRoutes, { prefix: '/api/deployments' });
 await app.register(domainRoutes, { prefix: '/api/projects' });
@@ -71,6 +76,11 @@ app.get('/api/health', async (_request, reply) => {
   }
 });
 
+
+app.addHook('onClose', async () => {
+  await closeDeploymentQueue();
+  await prisma.$disconnect();
+});
 const port = Number(process.env.API_PORT ?? 4000);
 const host = process.env.API_HOST ?? '0.0.0.0';
 await app.listen({ port, host });
@@ -78,7 +88,6 @@ await app.listen({ port, host });
 async function shutdown(signal: string) {
   app.log.info({ signal }, 'Shutting down API');
   await app.close();
-  await prisma.$disconnect();
   process.exit(0);
 }
 

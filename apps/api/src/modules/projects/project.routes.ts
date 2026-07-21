@@ -30,12 +30,33 @@ const projectBodySchema = z.object({
   appPort: z.coerce.number().int().min(1).max(65535).default(3000),
   healthPath: z.string().trim().max(200).default('/').transform((value) => value.startsWith('/') ? value : `/${value}`),
   primaryDomain: z.string().trim().optional().nullable(),
+  deploymentMethod: z.enum(['GITHUB_APP', 'GITHUB_ACTIONS']).default('GITHUB_ACTIONS'),
+  autoDeployEnabled: z.coerce.boolean().default(true),
+  githubInstallationId: z.string().trim().regex(/^\d+$/).optional().nullable(),
+  githubRepositoryId: z.string().trim().optional().nullable(),
+}).superRefine((body, context) => {
+  if (body.deploymentMethod === 'GITHUB_APP' && (!body.githubInstallationId || !body.githubRepositoryId)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['githubInstallationId'], message: 'Select a connected GitHub App repository.' });
+  }
 });
 
-const updateProjectSchema = projectBodySchema.partial().refine(
-  (body) => Object.keys(body).length > 0,
-  'At least one project field is required',
-);
+const updateProjectSchema = z.object({
+  name: z.string().trim().min(2).max(100).optional(),
+  slug: z.string().trim().min(2).max(63).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
+  repoUrl: z.string().trim().min(1).optional(),
+  defaultBranch: z.string().trim().min(1).max(120).optional(),
+  rootDirectory: rootDirectorySchema.optional(),
+  installCommand: commandSchema.optional().nullable(),
+  buildCommand: commandSchema.optional(),
+  startCommand: commandSchema.optional(),
+  appPort: z.coerce.number().int().min(1).max(65535).optional(),
+  healthPath: z.string().trim().max(200).transform((value) => value.startsWith('/') ? value : `/${value}`).optional(),
+  primaryDomain: z.string().trim().optional().nullable(),
+  deploymentMethod: z.enum(['GITHUB_APP', 'GITHUB_ACTIONS']).optional(),
+  autoDeployEnabled: z.coerce.boolean().optional(),
+  githubInstallationId: z.string().trim().regex(/^\d+$/).optional().nullable(),
+  githubRepositoryId: z.string().trim().optional().nullable(),
+}).refine((body) => Object.keys(body).length > 0, 'At least one project field is required');
 
 function isUniqueConstraintError(error: unknown): boolean {
   return Boolean(
@@ -46,7 +67,7 @@ function isUniqueConstraintError(error: unknown): boolean {
   );
 }
 
-function normalizeProjectData(body: z.infer<typeof projectBodySchema> | z.infer<typeof updateProjectSchema>) {
+function normalizeProjectData(body: Record<string, unknown>) {
   const data: Record<string, unknown> = { ...body };
   if (typeof body.repoUrl === 'string') {
     const repository = parseGitHubRepository(body.repoUrl);
@@ -54,11 +75,12 @@ function normalizeProjectData(body: z.infer<typeof projectBodySchema> | z.infer<
     data.repositoryFullName = repository.fullName.toLowerCase();
   }
   if ('primaryDomain' in body) {
-    data.primaryDomain = body.primaryDomain ? normalizeHostname(body.primaryDomain) : null;
+    const primaryDomain = typeof body.primaryDomain === 'string' ? body.primaryDomain : '';
+    data.primaryDomain = primaryDomain ? normalizeHostname(primaryDomain) : null;
   }
-  if ('installCommand' in body) {
-    data.installCommand = body.installCommand || null;
-  }
+  if ('installCommand' in body) data.installCommand = typeof body.installCommand === 'string' && body.installCommand ? body.installCommand : null;
+  if ('githubInstallationId' in body) data.githubInstallationId = body.githubInstallationId || null;
+  if ('githubRepositoryId' in body) data.githubRepositoryId = body.githubRepositoryId || null;
   return data;
 }
 
@@ -72,6 +94,27 @@ const projectInclude = {
   },
   _count: { select: { envVars: true, deployKeys: true, deployments: true, domains: true } },
 };
+
+async function validateGitHubAppRepository(input: { deploymentMethod?: string; githubInstallationId?: string | null; githubRepositoryId?: string | null; repoUrl?: string | null }) {
+  if (input.deploymentMethod !== 'GITHUB_APP') return null;
+  if (!input.githubInstallationId || !input.githubRepositoryId) throw Object.assign(new Error('Select a connected GitHub App repository.'), { statusCode: 400 });
+  const repository = await prisma.gitHubRepository.findFirst({
+    where: {
+      githubId: input.githubRepositoryId,
+      installation: { externalId: input.githubInstallationId, status: 'ACTIVE' },
+      archived: false,
+      disabled: false,
+    },
+  });
+  if (!repository) throw Object.assign(new Error('The selected GitHub App installation cannot access this repository.'), { statusCode: 403 });
+  if (input.repoUrl) {
+    const parsed = parseGitHubRepository(input.repoUrl);
+    if (parsed.fullName.toLowerCase() !== repository.fullName) {
+      throw Object.assign(new Error('Selected repository does not match the GitHub App repository record.'), { statusCode: 409 });
+    }
+  }
+  return repository;
+}
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', async () => {
@@ -98,7 +141,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       update: {},
     });
 
-    const normalizedData = normalizeProjectData(body);
+    await validateGitHubAppRepository(body);
+    const normalizedData = normalizeProjectData(body as unknown as Record<string, unknown>);
     const existing = await prisma.project.findUnique({ where: { slug: body.slug } });
     if (existing) {
       const project = await prisma.project.update({
@@ -127,8 +171,16 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const existing = await prisma.project.findUnique({ where: { id: projectId } });
     if (!existing) return reply.code(404).send({ message: 'Project not found' });
 
+    const merged = {
+      deploymentMethod: body.deploymentMethod ?? existing.deploymentMethod,
+      githubInstallationId: body.githubInstallationId === undefined ? existing.githubInstallationId : body.githubInstallationId,
+      githubRepositoryId: body.githubRepositoryId === undefined ? existing.githubRepositoryId : body.githubRepositoryId,
+      repoUrl: body.repoUrl ?? existing.repoUrl,
+    };
+    await validateGitHubAppRepository(merged);
+
     try {
-      const project = await prisma.project.update({ where: { id: projectId }, data: normalizeProjectData(body) as never });
+      const project = await prisma.project.update({ where: { id: projectId }, data: normalizeProjectData(body as unknown as Record<string, unknown>) as never });
       return reply.send({ ...project, deployTokenHash: undefined, deployTokenConfigured: Boolean(project.deployTokenHash) });
     } catch (error) {
       if (isUniqueConstraintError(error)) {

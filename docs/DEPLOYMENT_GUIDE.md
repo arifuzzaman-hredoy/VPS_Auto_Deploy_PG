@@ -64,7 +64,8 @@ npm run db:push
 npm run qa:deploy
 npm run typecheck
 npm run build
-pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 delete deploy-os-api deploy-os-web deploy-os-runner 2>/dev/null || true
+pm2 start ecosystem.config.cjs --update-env
 pm2 save
 ```
 
@@ -79,18 +80,44 @@ bash scripts/deploy-vps.sh
 
 The runner service should remain `active (running)` and must use repository labels matching `.github/workflows/deploy-vps.yml`.
 
-## 7. Creating a client project
+## 7. Configure the GitHub App (recommended)
 
-1. Create the project in the Hredoy Deploy OS UI.
-2. Set the root directory when the deployable app is inside a monorepo.
-3. Add its generated public deploy key to the client GitHub repository.
-4. Add the generated API token and API URL as GitHub Actions secrets.
-5. Copy the generated workflow into `.github/workflows/deploy.yml`.
-6. Configure `.env`, database, health path and custom domain as needed.
-7. Push to the production branch.
-8. Watch the project dashboard until the deployment becomes `LIVE`.
+Register one GitHub App, then add these values to `.env`:
 
-## 8. Troubleshooting
+```env
+GITHUB_APP_ID=<numeric-app-id>
+GITHUB_APP_SLUG=<app-slug>
+GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
+GITHUB_APP_WEBHOOK_SECRET=<random-secret>
+```
+
+GitHub App URLs:
+
+```text
+Setup URL: https://vps.techteamlead.com/github/setup
+Webhook URL: https://vps.techteamlead.com/api/github/webhook
+```
+
+Grant repository **Contents: read-only** and **Commit statuses: read and write**. Subscribe to **Push**, **Installation** and **Installation repositories** events. Full instructions are in [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md).
+
+## 8. Creating a client project
+
+### GitHub App mode
+
+1. Open `/github` and install the App for the required repositories.
+2. Import a repository from **New Project**.
+3. Choose branch, monorepo root, port, health path, environment, database and domain.
+4. Save and use **Deploy now**, or push to the production branch.
+
+### GitHub Actions mode
+
+1. Create the project and choose **GitHub Actions**.
+2. Add its generated public deploy key to the client repository with write access disabled.
+3. Add the generated API token and API URL as GitHub Actions secrets.
+4. Copy the generated workflow into `.github/workflows/deploy.yml`.
+5. Push to the production branch. The workflow waits for the final Deploy OS status.
+
+## 9. Troubleshooting
 
 ```bash
 cd /var/www/techteam-deploy-os

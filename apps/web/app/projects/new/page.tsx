@@ -1,9 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 
+type DeploymentMethod = "GITHUB_APP" | "GITHUB_ACTIONS";
+
+type GitHubInstallation = { externalId: string; accountLogin: string; status: string; _count: { repositories: number } };
+type GitHubRepository = { githubId: string; fullName: string; defaultBranch: string; cloneUrl: string; private: boolean };
+type GitHubBranch = { name: string; sha: string; protected: boolean };
+
 type ProjectForm = {
+  deploymentMethod: DeploymentMethod;
+  autoDeployEnabled: boolean;
+  githubInstallationId: string;
+  githubRepositoryId: string;
   name: string;
   slug: string;
   repoUrl: string;
@@ -35,6 +45,10 @@ type DeployKeyStatus = {
 };
 
 const initialForm: ProjectForm = {
+  deploymentMethod: "GITHUB_APP",
+  autoDeployEnabled: true,
+  githubInstallationId: "",
+  githubRepositoryId: "",
   name: "",
   slug: "",
   repoUrl: "",
@@ -110,6 +124,78 @@ export default function NewProjectPage() {
   const [databaseProvisioned, setDatabaseProvisioned] = useState(false);
   const [deployToken, setDeployToken] = useState("");
   const [deployTokenMessage, setDeployTokenMessage] = useState("");
+  const [githubInstallations, setGitHubInstallations] = useState<GitHubInstallation[]>([]);
+  const [githubRepositories, setGitHubRepositories] = useState<GitHubRepository[]>([]);
+  const [githubBranches, setGitHubBranches] = useState<GitHubBranch[]>([]);
+  const [githubMessage, setGitHubMessage] = useState("");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await fetch("/api/github/installations", { cache: "no-store" });
+        const payload = await response.json().catch(() => []);
+        if (!response.ok) throw new Error("GitHub installations could not be loaded.");
+        const installations = Array.isArray(payload) ? payload as GitHubInstallation[] : [];
+        setGitHubInstallations(installations);
+        const requested = new URLSearchParams(window.location.search).get("installationId") || "";
+        const initialInstallation = requested || installations[0]?.externalId || "";
+        if (initialInstallation) {
+          setForm((current) => ({ ...current, githubInstallationId: initialInstallation }));
+        }
+      } catch (error) {
+        setGitHubMessage(error instanceof Error ? error.message : "GitHub installations could not be loaded.");
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (form.deploymentMethod !== "GITHUB_APP" || !form.githubInstallationId) {
+      setGitHubRepositories([]);
+      return;
+    }
+    void (async () => {
+      try {
+        setGitHubMessage("Loading accessible repositories…");
+        const response = await fetch(`/api/github/installations/${form.githubInstallationId}/repositories`, { cache: "no-store" });
+        const payload = await response.json().catch(() => []);
+        if (!response.ok) throw new Error(payload.message || "Repositories could not be loaded.");
+        setGitHubRepositories(Array.isArray(payload) ? payload as GitHubRepository[] : []);
+        setGitHubMessage("");
+      } catch (error) {
+        setGitHubRepositories([]);
+        setGitHubMessage(error instanceof Error ? error.message : "Repositories could not be loaded.");
+      }
+    })();
+  }, [form.deploymentMethod, form.githubInstallationId]);
+
+  useEffect(() => {
+    if (form.deploymentMethod !== "GITHUB_APP" || !form.githubInstallationId || !form.githubRepositoryId) {
+      setGitHubBranches([]);
+      return;
+    }
+    const repository = githubRepositories.find((item) => item.githubId === form.githubRepositoryId);
+    if (!repository) {
+      setGitHubBranches([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const response = await fetch(`/api/github/installations/${form.githubInstallationId}/branches?repository=${encodeURIComponent(repository.fullName)}`, { cache: "no-store" });
+        const payload = await response.json().catch(() => []);
+        if (!response.ok) throw new Error(payload.message || "Branches could not be loaded.");
+        const branches = Array.isArray(payload) ? payload as GitHubBranch[] : [];
+        setGitHubBranches(branches);
+        if (branches.length > 0) {
+          setForm((current) => branches.some((branch) => branch.name === current.branch)
+            ? current
+            : { ...current, branch: repository.defaultBranch || branches[0].name });
+        }
+      } catch (error) {
+        setGitHubBranches([]);
+        setGitHubMessage(error instanceof Error ? error.message : "Branches could not be loaded.");
+      }
+    })();
+  }, [form.deploymentMethod, form.githubInstallationId, form.githubRepositoryId, githubRepositories]);
 
   const yaml = useMemo(() => {
     return `name: Deploy with Hredoy Deploy OS
@@ -128,20 +214,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  trigger-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
 
     steps:
-      - name: Trigger Hredoy Deploy OS
+      - name: Queue deployment
+        id: queue
         env:
           DEPLOY_API_URL: \${{ secrets.DEPLOY_API_URL }}
           DEPLOY_TOKEN: \${{ secrets.DEPLOY_TOKEN }}
         run: |
-          curl --fail-with-body --silent --show-error \\
-            --retry 3 --retry-all-errors \\
-            -X POST "$DEPLOY_API_URL/api/deployments/trigger" \\
-            -H "Authorization: Bearer $DEPLOY_TOKEN" \\
-            -H "Content-Type: application/json" \\
+          response="$(curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -X POST "$DEPLOY_API_URL/api/deployments/trigger" \
+            -H "Authorization: Bearer $DEPLOY_TOKEN" \
+            -H "Content-Type: application/json" \
             -d '{
               "projectSlug": "${form.slug || "project-slug"}",
               "repository": "\${{ github.repository }}",
@@ -149,7 +237,31 @@ jobs:
               "commit": "\${{ github.sha }}",
               "runId": "\${{ github.run_id }}",
               "runAttempt": "\${{ github.run_attempt }}"
-            }'`;
+            }')"
+          echo "$response"
+          deployment_id="$(jq -r '.deploymentId // empty' <<<"$response")"
+          test -n "$deployment_id" || { echo "Deploy OS did not return a deployment ID."; exit 1; }
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for production deployment
+        env:
+          DEPLOY_API_URL: \${{ secrets.DEPLOY_API_URL }}
+          DEPLOYMENT_ID: \${{ steps.queue.outputs.deployment_id }}
+        run: |
+          for attempt in $(seq 1 180); do
+            response="$(curl --fail-with-body --silent --show-error \
+              --retry 3 --retry-all-errors \
+              "$DEPLOY_API_URL/api/deployments/$DEPLOYMENT_ID")"
+            status="$(jq -r '.status // empty' <<<"$response")"
+            echo "Deploy OS status: \${status:-UNKNOWN} (check $attempt/180)"
+            case "$status" in
+              LIVE) echo "Deployment is live."; exit 0 ;;
+              FAILED) echo "$response"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Deployment did not finish within 30 minutes."
+          exit 1`;
   }, [form.branch, form.slug]);
 
   const deployKeyGenerated = deployKeyStatus.type === "success" && Boolean(deployKeyStatus.publicKey);
@@ -163,12 +275,12 @@ jobs:
   const completionItems = [
     { label: "Project identity", done: Boolean(form.name.trim() && form.slug.trim()) },
     { label: "GitHub repo URL", done: Boolean(form.repoUrl.trim()) },
-    { label: "Deploy key", done: deployKeyGenerated },
+    { label: "Repository access", done: form.deploymentMethod === "GITHUB_APP" ? Boolean(form.githubInstallationId && form.githubRepositoryId) : deployKeyGenerated },
     { label: "Runtime config", done: Boolean(form.appPort.trim() && form.healthPath.trim()) },
     { label: "Environment optional", done: !form.envFileName || envErrors.length === 0 },
     { label: "Database optional", done: databaseProvisioned || (!form.databaseName && !form.databaseUser && !form.databasePassword) },
-    { label: "CI/CD token", done: Boolean(deployToken) },
-    { label: "Generated YAML", done: Boolean(yaml) },
+    { label: "Automatic deploy", done: form.deploymentMethod === "GITHUB_APP" ? Boolean(form.autoDeployEnabled) : Boolean(deployToken) },
+    { label: "Deployment setup", done: form.deploymentMethod === "GITHUB_APP" ? Boolean(form.githubRepositoryId) : Boolean(yaml) },
   ];
 
   const completedCount = completionItems.filter((item) => item.done).length;
@@ -217,12 +329,17 @@ jobs:
     appPort: Number(form.appPort),
     healthPath: form.healthPath.trim() || "/",
     primaryDomain: form.domain.trim() || null,
+    deploymentMethod: form.deploymentMethod,
+    autoDeployEnabled: form.autoDeployEnabled,
+    githubInstallationId: form.githubInstallationId || null,
+    githubRepositoryId: form.githubRepositoryId || null,
   });
 
   const validateProjectIdentity = () => {
     if (!form.name.trim()) return "Project name is required before generating a deploy key.";
     if (!form.slug.trim()) return "Project slug is required before generating a deploy key.";
     if (!/^[a-z0-9-]+$/.test(form.slug)) return "Slug can contain only lowercase letters, numbers and hyphen.";
+    if (form.deploymentMethod === "GITHUB_APP" && (!form.githubInstallationId || !form.githubRepositoryId)) return "Select a connected GitHub App repository.";
     if (!form.repoUrl.trim()) return "GitHub repo URL is required before generating a deploy key.";
     const repositoryValue = form.repoUrl.trim();
     const isSsh = /^git@github\.com:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/i.test(repositoryValue);
@@ -355,15 +472,16 @@ jobs:
       const resolvedProjectId = await ensureProject();
       const followUps: string[] = [projectId ? "project updated" : "project saved"];
 
-      if (!deployKeyGenerated) {
+      if (form.deploymentMethod === "GITHUB_ACTIONS" && !deployKeyGenerated) {
         await requestDeployKey(resolvedProjectId);
         followUps.push("real Ed25519 deploy key generated");
       }
 
-      if (!deployToken) {
+      if (form.deploymentMethod === "GITHUB_ACTIONS" && !deployToken) {
         await requestDeployToken(resolvedProjectId);
         followUps.push("project CI/CD token generated");
       }
+      if (form.deploymentMethod === "GITHUB_APP") followUps.push("GitHub App webhook deploy enabled");
 
       if (Object.keys(envVariables).length > 0) {
         const envResponse = await fetch(`/api/projects/${resolvedProjectId}/env`, {
@@ -408,7 +526,7 @@ jobs:
       setSaveStatus({
         type: "success",
         projectId: resolvedProjectId,
-        message: `Success: ${followUps.join(" + ")}. Next: add the public key and workflow YAML to the client repo.`,
+        message: `Success: ${followUps.join(" + ")}. ${form.deploymentMethod === "GITHUB_APP" ? "Push to the production branch to deploy automatically." : "Next: add the public key and workflow YAML to the client repo."}`,
       });
     } catch (caughtError) {
       setSaveStatus({
@@ -453,9 +571,9 @@ jobs:
       <div className="process-strip" aria-label="Project setup steps">
         {[
           ["1", "Source", "Project and repository"],
-          ["2", "Runtime", "Commands and deploy key"],
+          ["2", "Runtime", "Commands and repository access"],
           ["3", "Environment", "Secrets and database"],
-          ["4", "Workflow", "GitHub Actions"],
+          ["4", "Automation", "GitHub App or Actions"],
           ["5", "Review", "Validate and save"],
         ].map(([number, title, text], index) => (
           <div key={number} className={`process-item ${completedCount > index ? "done" : ""}`}>
@@ -481,6 +599,52 @@ jobs:
               <span className="badge">Required</span>
             </div>
 
+            <div className="stack" style={{ marginBottom: 18 }}>
+              <Field label="Deployment method" hint="GitHub App is the Vercel-like option. GitHub Actions keeps CI/CD inside the repository.">
+                <select className="input" value={form.deploymentMethod} onChange={(event) => {
+                  const method = event.target.value as DeploymentMethod;
+                  setForm((current) => ({ ...current, deploymentMethod: method }));
+                  setDeployKeyStatus({ type: "idle", message: "", publicKey: "", fingerprint: "" });
+                  setDeployToken("");
+                }}>
+                  <option value="GITHUB_APP">GitHub App — Recommended</option>
+                  <option value="GITHUB_ACTIONS">GitHub Actions</option>
+                </select>
+              </Field>
+              {form.deploymentMethod === "GITHUB_APP" ? (
+                <div className="grid grid-2">
+                  <Field label="Connected account" hint="Install the GitHub App first if no account appears.">
+                    <select className="input" value={form.githubInstallationId} onChange={(event) => setForm((current) => ({ ...current, githubInstallationId: event.target.value, githubRepositoryId: "", repoUrl: "" }))}>
+                      <option value="">Select account</option>
+                      {githubInstallations.map((installation) => <option key={installation.externalId} value={installation.externalId}>{installation.accountLogin} · {installation._count.repositories} repos</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Repository" hint="Only repositories granted to the App are listed.">
+                    <select className="input" value={form.githubRepositoryId} onChange={(event) => {
+                      const repository = githubRepositories.find((item) => item.githubId === event.target.value);
+                      setForm((current) => ({
+                        ...current,
+                        githubRepositoryId: event.target.value,
+                        repoUrl: repository?.cloneUrl || "",
+                        branch: repository?.defaultBranch || current.branch,
+                        name: current.name || repository?.fullName.split("/").pop() || "",
+                        slug: current.slug || slugify(repository?.fullName.split("/").pop() || ""),
+                      }));
+                    }}>
+                      <option value="">Select repository</option>
+                      {githubRepositories.map((repository) => <option key={repository.githubId} value={repository.githubId}>{repository.fullName}{repository.private ? " · private" : ""}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              ) : null}
+              {githubMessage ? <div className="notice">{githubMessage}</div> : null}
+              {form.deploymentMethod === "GITHUB_APP" && githubInstallations.length === 0 ? <a className="btn secondary" href="/github">Connect GitHub App</a> : null}
+              <label className="check-row done">
+                <input type="checkbox" checked={form.autoDeployEnabled} onChange={(event) => setForm((current) => ({ ...current, autoDeployEnabled: event.target.checked }))} />
+                <span>Automatically deploy pushes to the production branch</span>
+              </label>
+            </div>
+
             <div className="form-grid">
               <Field label="Project name" hint="A readable name, for example School ERP">
                 <input className="input" value={form.name} onChange={(event) => updateForm("name", event.target.value)} placeholder="School ERP" />
@@ -488,11 +652,17 @@ jobs:
               <Field label="Project slug" hint="Used internally in URLs and deployment names">
                 <input className="input" value={form.slug} onChange={(event) => updateForm("slug", slugify(event.target.value))} placeholder="school-erp" />
               </Field>
-              <Field label="GitHub repository URL" hint="Public or private repository" full>
-                <input className="input" value={form.repoUrl} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repository.git" />
+              <Field label="GitHub repository URL" hint={form.deploymentMethod === "GITHUB_APP" ? "Filled from the selected GitHub App repository" : "Public or private repository"} full>
+                <input className="input" value={form.repoUrl} readOnly={form.deploymentMethod === "GITHUB_APP"} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repository.git" />
               </Field>
               <Field label="Default branch" hint="The branch that triggers production deploys">
-                <input className="input" value={form.branch} onChange={(event) => updateForm("branch", event.target.value)} placeholder="main" />
+                {form.deploymentMethod === "GITHUB_APP" && githubBranches.length > 0 ? (
+                  <select className="input" value={form.branch} onChange={(event) => updateForm("branch", event.target.value)}>
+                    {githubBranches.map((branch) => <option key={branch.name} value={branch.name}>{branch.name}{branch.protected ? " · protected" : ""}</option>)}
+                  </select>
+                ) : (
+                  <input className="input" value={form.branch} onChange={(event) => updateForm("branch", event.target.value)} placeholder="main" />
+                )}
               </Field>
               <Field label="Root directory" hint="Use . for repository root, or a monorepo folder such as apps/web">
                 <input className="input" value={form.rootDirectory} onChange={(event) => updateForm("rootDirectory", event.target.value)} placeholder="." />
@@ -510,10 +680,10 @@ jobs:
                 <div>
                   <p className="panel-kicker">Required</p>
                   <h2 className="panel-title" id="runtime-title">Runtime and repository access</h2>
-                  <p className="panel-subtitle">Set the build commands, then generate a read-only deploy key for the repository.</p>
+                  <p className="panel-subtitle">Set build commands and repository access. GitHub App mode needs no manual deploy key.</p>
                 </div>
               </div>
-              <span className="badge">{deployKeyGenerated ? "Key ready" : "Key required"}</span>
+              <span className="badge">{form.deploymentMethod === "GITHUB_APP" ? "GitHub App access" : deployKeyGenerated ? "Key ready" : "Key required"}</span>
             </div>
 
             <div className="form-grid">
@@ -534,6 +704,7 @@ jobs:
               </Field>
             </div>
 
+            {form.deploymentMethod === "GITHUB_ACTIONS" ? (
             <div className="stack" style={{ marginTop: 18 }}>
               <div className="notice">
                 <strong>Deploy key:</strong> Deploy OS stores the private key encrypted on the server. Only the public key is shown here for GitHub.
@@ -584,6 +755,11 @@ jobs:
                 <div className="empty-state">Complete the project source section, then generate the deploy key.</div>
               )}
             </div>
+            ) : (
+              <div className="notice" style={{ marginTop: 18 }}>
+                <strong>No deploy key required:</strong> the GitHub App provides short-lived repository access tokens during each deployment.
+              </div>
+            )}
           </section>
 
           <section className="panel" aria-labelledby="environment-title">
@@ -641,13 +817,15 @@ jobs:
                 <span className="section-number">4</span>
                 <div>
                   <p className="panel-kicker">Client repository</p>
-                  <h2 className="panel-title" id="workflow-title">GitHub Actions workflow</h2>
-                  <p className="panel-subtitle">Add this workflow and the two repository secrets after the project is saved.</p>
+                  <h2 className="panel-title" id="workflow-title">Deployment automation</h2>
+                  <p className="panel-subtitle">Use signed GitHub App webhooks or repository-managed GitHub Actions.</p>
                 </div>
               </div>
-              <button className="btn secondary" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy YAML"}</button>
+              {form.deploymentMethod === "GITHUB_ACTIONS" ? <button className="btn secondary" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy YAML"}</button> : <span className="badge">No workflow file needed</span>}
             </div>
 
+            {form.deploymentMethod === "GITHUB_ACTIONS" ? (
+              <>
             <details className="details-box">
               <summary>View generated workflow YAML</summary>
               <div className="details-content"><pre className="code tall">{yaml}</pre></div>
@@ -678,6 +856,18 @@ jobs:
               </div>
             ) : (
               <div className="notice" style={{ marginTop: 16 }}>Save the project once to generate its real one-time CI/CD token.</div>
+            )}
+
+              </>
+            ) : (
+              <div className="stack">
+                <div className="notice"><strong>Vercel-like mode:</strong> pushes arrive through the signed GitHub App webhook and enter the same deployment queue automatically.</div>
+                <div className="review-list">
+                  <ReviewRow label="Repository" value={form.repoUrl || "Select a repository"} />
+                  <ReviewRow label="Production branch" value={form.branch || "main"} />
+                  <ReviewRow label="Auto deploy" value={form.autoDeployEnabled ? "Enabled" : "Disabled"} />
+                </div>
+              </div>
             )}
           </section>
         </div>
@@ -714,7 +904,8 @@ jobs:
               <ReviewRow label="Domain" value={form.domain || "Not set"} />
               <ReviewRow label="Port" value={form.appPort || "Not set"} />
               <ReviewRow label="Health" value={form.healthPath || "/"} />
-              <ReviewRow label="CI/CD" value={deployToken ? "Token generated" : "Token not generated"} />
+              <ReviewRow label="Deployment method" value={form.deploymentMethod === "GITHUB_APP" ? "GitHub App" : "GitHub Actions"} />
+              <ReviewRow label="CI/CD" value={form.deploymentMethod === "GITHUB_APP" ? (form.autoDeployEnabled ? "Webhook enabled" : "Manual only") : deployToken ? "Token generated" : "Token not generated"} />
               <ReviewRow label="Database" value={form.databaseName ? `${form.databaseName}${databaseProvisioned ? " · provisioned" : ""}` : "Skipped"} />
               <ReviewRow label="DB password" value={mask(form.databasePassword)} />
               <ReviewRow label="Environment" value={form.envFileName || "Not uploaded"} />

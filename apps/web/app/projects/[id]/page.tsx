@@ -36,6 +36,10 @@ type Project = {
   status: string;
   liveUrl?: string | null;
   deployTokenConfigured: boolean;
+  deploymentMethod: 'GITHUB_APP' | 'GITHUB_ACTIONS';
+  autoDeployEnabled: boolean;
+  githubInstallationId?: string | null;
+  githubRepositoryId?: string | null;
   deployments: Deployment[];
   domains: Array<{ id: string; hostname: string; status: string; isPrimary: boolean }>;
   databases: Array<{ id: string; databaseName: string; status: string }>;
@@ -83,8 +87,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     if (!project) return [];
     return [
       ['Repository connected', Boolean(project.repositoryFullName)],
-      ['Deploy key created', project._count.deployKeys > 0],
-      ['CI/CD token created', project.deployTokenConfigured],
+      ['Repository access', project.deploymentMethod === 'GITHUB_APP' ? Boolean(project.githubInstallationId) : project._count.deployKeys > 0],
+      ['Automatic deploy', project.deploymentMethod === 'GITHUB_APP' ? project.autoDeployEnabled : project.deployTokenConfigured],
       ['Runtime configured', Boolean(project.appPort && project.healthPath)],
       ['Environment optional', true],
       ['Database optional', true],
@@ -114,6 +118,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
               </div>
               <div className="review-list">
                 <Review label="Repository" value={project.repoUrl || 'Not set'} />
+                <Review label="Deployment method" value={project.deploymentMethod === 'GITHUB_APP' ? 'GitHub App' : 'GitHub Actions'} />
+                <Review label="Auto deploy" value={project.autoDeployEnabled ? 'Enabled' : 'Disabled'} />
                 <Review label="Branch" value={project.defaultBranch} />
                 <Review label="Root directory" value={project.rootDirectory || "."} />
                 <Review label="Framework" value={project.framework || 'Auto detect on first deploy'} />
@@ -138,18 +144,23 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
               branch={project.defaultBranch}
               repositoryFullName={project.repositoryFullName}
               deployTokenConfigured={project.deployTokenConfigured}
+              deploymentMethod={project.deploymentMethod}
+              autoDeployEnabled={project.autoDeployEnabled}
+              githubInstallationId={project.githubInstallationId}
+              githubRepositoryId={project.githubRepositoryId}
+              onUpdated={() => void load(true)}
             />
 
             <section className="panel">
               <div className="panel-header">
                 <div>
                   <p className="panel-kicker">Deployment history</p>
-                  <h2 className="panel-title">GitHub Actions deployments</h2>
+                  <h2 className="panel-title">Deployment history</h2>
                   <p className="panel-subtitle">The newest deployment is shown first. Expand a row to view runner logs.</p>
                 </div>
                 <span className="badge">{project._count.deployments} total</span>
               </div>
-              {project.deployments.length === 0 ? <div className="empty-state">No deployment has been triggered yet. Add the workflow and push to {project.defaultBranch}.</div> : (
+              {project.deployments.length === 0 ? <div className="empty-state">No deployment has been triggered yet. Push to the production branch or use Deploy now.</div> : (
                 <div className="stack">
                   {project.deployments.map((deployment) => (
                     <details className="details-box" key={deployment.id}>
@@ -186,7 +197,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                 <Review label="Deploy keys" value={String(project._count.deployKeys)} />
                 <Review label="Database" value={project.databases[0]?.databaseName || 'Skipped'} />
                 <Review label="Domains" value={String(project._count.domains)} />
-                <Review label="CI/CD token" value={project.deployTokenConfigured ? 'Configured' : 'Missing'} />
+                <Review label="Deployment method" value={project.deploymentMethod === 'GITHUB_APP' ? 'GitHub App' : 'GitHub Actions'} />
+                <Review label="CI/CD token" value={project.deploymentMethod === 'GITHUB_APP' ? 'Not required' : project.deployTokenConfigured ? 'Configured' : 'Missing'} />
               </div>
             </section>
           </aside>

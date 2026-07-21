@@ -6,13 +6,14 @@ import { decryptSecret } from '../lib/crypto.js';
 import { activateNginxRoute, type NginxRouteHandle } from '../lib/nginx.js';
 import { findAvailablePort } from '../lib/ports.js';
 import { runCommand } from '../lib/shell.js';
+import { createInstallationCloneUrl, setGitHubCommitStatus } from '../lib/github-app.js';
 import type { DeploymentStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
 interface DeploymentJobData {
   deploymentId: string;
   projectId: string;
-  commit: string;
+  commit?: string;
 }
 
 async function writeDeploymentLog(deploymentId: string, level: string, message: string): Promise<void> {
@@ -136,6 +137,7 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
   let imageTag = '';
   let routeHandle: NginxRouteHandle | undefined;
   let hadLiveDeployment = false;
+  let githubStatusContext: { installationId: string; repositoryFullName: string; commit: string; projectId: string } | null = null;
 
   try {
     releaseProjectLock = await acquireProjectLock(projectRoot, data.deploymentId);
@@ -144,7 +146,7 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
       where: { id: data.deploymentId },
       data: { status: 'CREATED', startedAt: new Date(), finishedAt: null },
     });
-    await writeDeploymentLog(data.deploymentId, 'info', `Deployment started for commit ${data.commit}.`);
+    await writeDeploymentLog(data.deploymentId, 'info', data.commit ? `Deployment started for commit ${data.commit}.` : 'Deployment started for the latest production-branch commit.');
 
     const project = await prisma.project.findUnique({
       where: { id: data.projectId },
@@ -175,7 +177,11 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
     const activeKey = project.deployKeys[0];
     const gitEnv: NodeJS.ProcessEnv = {};
     let cloneUrl = project.repoUrl ?? repositorySshUrl(project.repositoryFullName);
-    if (activeKey) {
+    if (project.deploymentMethod === 'GITHUB_APP') {
+      if (!project.githubInstallationId) throw new Error('GitHub App installation is missing for this project.');
+      cloneUrl = await createInstallationCloneUrl(project.githubInstallationId, project.repositoryFullName);
+      await writeDeploymentLog(data.deploymentId, 'info', 'Authenticated repository access with the connected GitHub App installation.');
+    } else if (activeKey) {
       writeFileSync(keyPath, decryptSecret(activeKey.encryptedPrivateKey), { mode: 0o600 });
       chmodSync(keyPath, 0o600);
       cloneUrl = repositorySshUrl(project.repositoryFullName);
@@ -198,9 +204,33 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
       env: gitEnv,
       timeoutMs: 180_000,
     });
-    await runLogged(data.deploymentId, 'Verifying the requested commit belongs to the configured branch.', 'git', ['merge-base', '--is-ancestor', data.commit, `origin/${project.defaultBranch}`], { cwd: repoDir, env: gitEnv });
-    await runLogged(data.deploymentId, `Checking out commit ${data.commit}.`, 'git', ['checkout', '--detach', '--force', data.commit], { cwd: repoDir, env: gitEnv });
+    let targetCommit = data.commit?.trim();
+    if (!targetCommit) {
+      const head = await runCommand('git', ['rev-parse', `origin/${project.defaultBranch}`], { cwd: repoDir, env: gitEnv });
+      targetCommit = head.stdout.trim();
+      if (!/^[a-f0-9]{40}$/i.test(targetCommit)) throw new Error('Could not resolve the latest production branch commit.');
+      await prisma.deployment.update({ where: { id: data.deploymentId }, data: { commitSha: targetCommit } });
+      await writeDeploymentLog(data.deploymentId, 'info', `Resolved latest ${project.defaultBranch} commit: ${targetCommit.slice(0, 12)}.`);
+    }
+    if (project.deploymentMethod === 'GITHUB_APP' && project.githubInstallationId) {
+      githubStatusContext = { installationId: project.githubInstallationId, repositoryFullName: project.repositoryFullName, commit: targetCommit, projectId: project.id };
+      await setGitHubCommitStatus({
+        installationId: project.githubInstallationId,
+        repositoryFullName: project.repositoryFullName,
+        commit: targetCommit,
+        state: 'pending',
+        description: 'Building and deploying on Hredoy Deploy OS',
+        targetUrl: `${(process.env.DEPLOY_OS_PUBLIC_URL || 'https://vps.techteamlead.com').replace(/\/+$/, '')}/projects/${project.id}`,
+      }).catch(async (statusError) => {
+        await writeDeploymentLog(data.deploymentId, 'warning', statusError instanceof Error ? statusError.message : 'GitHub pending status could not be updated.');
+      });
+    }
+    await runLogged(data.deploymentId, 'Verifying the requested commit belongs to the configured branch.', 'git', ['merge-base', '--is-ancestor', targetCommit, `origin/${project.defaultBranch}`], { cwd: repoDir, env: gitEnv });
+    await runLogged(data.deploymentId, `Checking out commit ${targetCommit}.`, 'git', ['checkout', '--detach', '--force', targetCommit], { cwd: repoDir, env: gitEnv });
     await runLogged(data.deploymentId, 'Cleaning repository workspace.', 'git', ['clean', '-fdx'], { cwd: repoDir, env: gitEnv });
+    if (project.deploymentMethod === 'GITHUB_APP') {
+      await runCommand('git', ['remote', 'set-url', 'origin', `https://github.com/${project.repositoryFullName}.git`], { cwd: repoDir, env: gitEnv });
+    }
     if (!existsSync(appDir)) throw new Error(`Configured root directory does not exist: ${rootDirectory}`);
     await setStatus(data.deploymentId, 'REPO_CLONED');
 
@@ -248,7 +278,7 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
       await writeDeploymentLog(data.deploymentId, 'info', `Generated ${dockerfile}.`);
     }
 
-    imageTag = `hredoy/${project.slug}:${data.commit.slice(0, 12).toLowerCase()}`;
+    imageTag = `hredoy/${project.slug}:${targetCommit.slice(0, 12).toLowerCase()}`;
     await prisma.deployment.update({ where: { id: data.deploymentId }, data: { status: 'BUILDING_IMAGE', imageTag } });
     await runLogged(
       data.deploymentId,
@@ -277,7 +307,7 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
       Number(process.env.RUNNER_PORT_RANGE_START ?? 20000),
       Number(process.env.RUNNER_PORT_RANGE_END ?? 29999),
     );
-    newContainerName = `hredoy-${project.slug}-${data.commit.slice(0, 12).toLowerCase()}`;
+    newContainerName = `hredoy-${project.slug}-${targetCommit.slice(0, 12).toLowerCase()}`;
     await prisma.deployment.update({
       where: { id: data.deploymentId },
       data: { status: 'STARTING_CONTAINER', containerName: newContainerName, hostPort },
@@ -363,6 +393,18 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
       await writeDeploymentLog(data.deploymentId, 'info', `Removed previous container ${previous.containerName} after route switch.`);
     }
 
+    if (project.deploymentMethod === 'GITHUB_APP' && project.githubInstallationId) {
+      await setGitHubCommitStatus({
+        installationId: project.githubInstallationId,
+        repositoryFullName: project.repositoryFullName,
+        commit: targetCommit,
+        state: 'success',
+        description: 'Deployment is live',
+        targetUrl: liveUrl,
+      }).catch(async (statusError) => {
+        await writeDeploymentLog(data.deploymentId, 'warning', statusError instanceof Error ? statusError.message : 'GitHub success status could not be updated.');
+      });
+    }
     await writeDeploymentLog(data.deploymentId, 'info', `Deployment is live: ${liveUrl}`).catch(() => undefined);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown deployment worker error.';
@@ -375,6 +417,16 @@ export async function runDeploymentJob(data: DeploymentJobData): Promise<void> {
       prisma.deployment.update({ where: { id: data.deploymentId }, data: { status: 'FAILED', finishedAt: new Date() } }),
       prisma.project.update({ where: { id: data.projectId }, data: { status: hadLiveDeployment ? 'LIVE' : 'DEPLOY_FAILED' } }),
     ]).catch(() => undefined);
+    if (githubStatusContext) {
+      await setGitHubCommitStatus({
+        installationId: githubStatusContext.installationId,
+        repositoryFullName: githubStatusContext.repositoryFullName,
+        commit: githubStatusContext.commit,
+        state: 'failure',
+        description: 'Deployment failed',
+        targetUrl: `${(process.env.DEPLOY_OS_PUBLIC_URL || 'https://vps.techteamlead.com').replace(/\/+$/, '')}/projects/${githubStatusContext.projectId}`,
+      }).catch(() => undefined);
+    }
     await writeDeploymentLog(data.deploymentId, 'error', message).catch(() => undefined);
     throw error;
   } finally {

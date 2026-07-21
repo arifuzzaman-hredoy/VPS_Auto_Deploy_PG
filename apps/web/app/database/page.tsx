@@ -15,6 +15,9 @@ type EntityKey =
   | 'deploymentLogs'
   | 'domains'
   | 'dnsProviders'
+  | 'githubInstallations'
+  | 'githubRepositories'
+  | 'githubWebhookDeliveries'
   | 'auditLogs';
 
 type Overview = {

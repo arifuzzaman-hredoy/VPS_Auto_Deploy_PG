@@ -14,15 +14,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  trigger-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
-      - name: Trigger Hredoy Deploy OS
+      - name: Queue deployment
+        id: queue
         env:
           DEPLOY_API_URL: ${{ secrets.DEPLOY_API_URL }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
-          curl --fail-with-body --silent --show-error \
+          response="$(curl --fail-with-body --silent --show-error \
             --retry 3 --retry-all-errors \
             -X POST "$DEPLOY_API_URL/api/deployments/trigger" \
             -H "Authorization: Bearer $DEPLOY_TOKEN" \
@@ -34,4 +36,28 @@ jobs:
               "commit": "${{ github.sha }}",
               "runId": "${{ github.run_id }}",
               "runAttempt": "${{ github.run_attempt }}"
-            }'
+            }')"
+          echo "$response"
+          deployment_id="$(jq -r '.deploymentId // empty' <<<"$response")"
+          test -n "$deployment_id" || { echo "Deploy OS did not return a deployment ID."; exit 1; }
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for production deployment
+        env:
+          DEPLOY_API_URL: ${{ secrets.DEPLOY_API_URL }}
+          DEPLOYMENT_ID: ${{ steps.queue.outputs.deployment_id }}
+        run: |
+          for attempt in $(seq 1 180); do
+            response="$(curl --fail-with-body --silent --show-error \
+              --retry 3 --retry-all-errors \
+              "$DEPLOY_API_URL/api/deployments/$DEPLOYMENT_ID")"
+            status="$(jq -r '.status // empty' <<<"$response")"
+            echo "Deploy OS status: ${status:-UNKNOWN} (check $attempt/180)"
+            case "$status" in
+              LIVE) echo "Deployment is live."; exit 0 ;;
+              FAILED) echo "$response"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Deployment did not finish within 30 minutes."
+          exit 1

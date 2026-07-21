@@ -16,7 +16,8 @@ function redact(value: string): string {
   return value
     .replace(/(postgres(?:ql)?:\/\/[^:\s]+:)[^@\s]+@/gi, '$1********@')
     .replace(/(Bearer\s+)[A-Za-z0-9._~-]+/gi, '$1********')
-    .replace(/(DEPLOY_TOKEN=)[^\s]+/gi, '$1********');
+    .replace(/(DEPLOY_TOKEN=)[^\s]+/gi, '$1********')
+    .replace(/https:\/\/x-access-token:[^@\s]+@github\.com/gi, 'https://x-access-token:********@github.com');
 }
 
 export function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<CommandResult> {

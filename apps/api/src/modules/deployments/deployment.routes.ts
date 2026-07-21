@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import { Queue } from 'bullmq';
 import { z } from 'zod';
 import { verifyDeployToken } from '../../lib/deploy-token.js';
 import { prisma } from '../../lib/prisma.js';
 import { normalizeRepositoryFullName } from '../../lib/repository.js';
+import { createQueuedDeployment, DeploymentQueueError } from './deployment.service.js';
 
 const triggerSchema = z.object({
   projectSlug: z.string().trim().min(2).max(63).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
@@ -14,22 +14,12 @@ const triggerSchema = z.object({
   runAttempt: z.coerce.number().int().min(1).optional(),
 });
 
-const connection = (() => {
-  const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
-  return {
-    host: redisUrl.hostname,
-    port: Number(redisUrl.port || 6379),
-    username: redisUrl.username ? decodeURIComponent(redisUrl.username) : undefined,
-    password: redisUrl.password ? decodeURIComponent(redisUrl.password) : undefined,
-    maxRetriesPerRequest: null,
-  };
-})();
-
-const deploymentQueue = new Queue('deployments', { connection });
+const manualSchema = z.object({
+  projectId: z.string().min(1),
+  commit: z.string().trim().regex(/^[a-f0-9]{7,64}$/i).optional().nullable(),
+});
 
 export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
-  app.addHook('onClose', async () => { await deploymentQueue.close(); });
-
   app.post('/trigger', async (request, reply) => {
     const auth = request.headers.authorization;
     const token = auth?.replace(/^Bearer\s+/i, '').trim();
@@ -59,8 +49,12 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
       Boolean(candidate.deployTokenHash && verifyDeployToken(token, candidate.deployTokenHash)),
     );
 
-    if (!project) {
-      return reply.code(401).send({ message: 'DEPLOY_TOKEN is invalid for this project.' });
+    if (!project) return reply.code(401).send({ message: 'DEPLOY_TOKEN is invalid for this project.' });
+    if (project.deploymentMethod !== 'GITHUB_ACTIONS') {
+      return reply.code(409).send({ message: 'GitHub Actions is configured but not active for this project. Switch the project deployment method first.' });
+    }
+    if (!project.autoDeployEnabled) {
+      return reply.code(409).send({ message: 'Automatic deployments are disabled for this project. Use Deploy now for a manual deployment.' });
     }
     if (project.repositoryFullName !== repositoryFullName) {
       return reply.code(409).send({
@@ -73,66 +67,54 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    if (payload.runId) {
-      const duplicate = await prisma.deployment.findFirst({
-        where: {
-          projectId: project.id,
-          externalRunId: payload.runId,
-          runAttempt: payload.runAttempt ?? 1,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (duplicate) {
-        return reply.code(202).send({ ok: true, deploymentId: duplicate.id, status: duplicate.status, reused: true });
-      }
-    }
-
-    const deployment = await prisma.deployment.create({
-      data: {
+    try {
+      const result = await createQueuedDeployment({
         projectId: project.id,
-        source: 'GITHUB',
         branch: payload.branch,
-        commitSha: payload.commit,
-        externalRunId: payload.runId,
+        commit: payload.commit,
+        externalRunId: payload.runId ? `github-actions:${payload.runId}` : null,
         runAttempt: payload.runAttempt ?? 1,
-        status: 'QUEUED',
-      },
-    });
+        triggerMethod: 'GITHUB_ACTIONS',
+        logMessage: `Queued from GitHub Actions for ${repositoryFullName}@${payload.commit.slice(0, 12)}.`,
+      });
+      return reply.code(202).send({
+        ok: true,
+        deploymentId: result.deployment.id,
+        status: result.deployment.status,
+        reused: result.reused,
+      });
+    } catch (error) {
+      if (error instanceof DeploymentQueueError) {
+        request.log.error({ err: error, projectId: project.id }, 'Deployment queue write failed');
+        return reply.code(503).send({ message: 'Deployment queue is unavailable. Try the GitHub Actions job again.' });
+      }
+      throw error;
+    }
+  });
 
-    await prisma.project.update({ where: { id: project.id }, data: { status: 'DEPLOYING' } });
-    await prisma.deploymentLog.create({
-      data: {
-        deploymentId: deployment.id,
-        level: 'info',
-        message: `Queued from GitHub Actions for ${repositoryFullName}@${payload.commit.slice(0, 12)}.`,
-      },
-    });
+  app.post('/manual', async (request, reply) => {
+    const payload = manualSchema.parse(request.body);
+    const project = await prisma.project.findUnique({ where: { id: payload.projectId } });
+    if (!project) return reply.code(404).send({ message: 'Project not found.' });
+    if (!project.repositoryFullName) return reply.code(409).send({ message: 'Connect a GitHub repository before deploying.' });
 
     try {
-      await deploymentQueue.add(
-        'deploy',
-        { deploymentId: deployment.id, projectId: project.id, commit: payload.commit },
-        {
-          jobId: deployment.id,
-          attempts: 2,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: 200,
-          removeOnFail: 500,
-        },
-      );
+      const result = await createQueuedDeployment({
+        projectId: project.id,
+        branch: project.defaultBranch,
+        commit: payload.commit || null,
+        externalRunId: `manual:${Date.now()}:${project.id}`,
+        runAttempt: 1,
+        triggerMethod: project.deploymentMethod,
+        logMessage: payload.commit
+          ? `Manual deployment queued for ${project.repositoryFullName}@${payload.commit.slice(0, 12)}.`
+          : `Manual deployment queued for the latest commit on ${project.defaultBranch}.`,
+      });
+      return reply.code(202).send({ ok: true, deploymentId: result.deployment.id, status: result.deployment.status });
     } catch (error) {
-      request.log.error({ err: error, deploymentId: deployment.id }, 'Deployment queue write failed');
-      await prisma.$transaction([
-        prisma.deployment.update({ where: { id: deployment.id }, data: { status: 'FAILED', finishedAt: new Date() } }),
-        prisma.project.update({ where: { id: project.id }, data: { status: 'QUEUE_FAILED' } }),
-        prisma.deploymentLog.create({
-          data: { deploymentId: deployment.id, level: 'error', message: 'Deploy OS could not add this deployment to the runner queue.' },
-        }),
-      ]).catch(() => undefined);
-      return reply.code(503).send({ message: 'Deployment queue is unavailable. Try the GitHub Actions job again.' });
+      if (error instanceof DeploymentQueueError) return reply.code(503).send({ message: 'Deployment queue is unavailable.' });
+      throw error;
     }
-
-    return reply.code(202).send({ ok: true, deploymentId: deployment.id, status: 'QUEUED', reused: false });
   });
 
   app.get('/project/:projectId', async (request, reply) => {

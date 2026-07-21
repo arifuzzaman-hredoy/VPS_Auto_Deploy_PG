@@ -12,6 +12,11 @@ enum SourceType {
   ZIP
 }
 
+enum DeploymentMethod {
+  GITHUB_APP
+  GITHUB_ACTIONS
+}
+
 enum DeploymentStatus {
   CREATED
   WAITING_FOR_DEPLOY_KEY
@@ -93,8 +98,12 @@ model Project {
   healthPath         String              @default("/")
   primaryDomain      String?
   deployTokenHash    String?
-  deployTokenPrefix  String?
-  framework          String?
+  deployTokenPrefix     String?
+  deploymentMethod      DeploymentMethod @default(GITHUB_ACTIONS)
+  autoDeployEnabled     Boolean          @default(true)
+  githubInstallationId  String?
+  githubRepositoryId    String?
+  framework             String?
   status             String              @default("CREATED")
   liveUrl            String?
   deployKeys      DeployKey[]
@@ -173,6 +182,7 @@ model Deployment {
   commitSha     String?
   externalRunId String?
   runAttempt    Int?
+  triggerMethod DeploymentMethod @default(GITHUB_ACTIONS)
   status        DeploymentStatus @default(CREATED)
   imageTag      String?
   containerName String?
@@ -244,4 +254,59 @@ model AuditLog {
   target    String
   metadata  Json?
   createdAt DateTime @default(now())
+}
+
+model GitHubInstallation {
+  id                  String             @id @default(cuid())
+  externalId          String             @unique
+  accountId           String
+  accountLogin        String
+  accountType         String
+  targetType          String?
+  repositorySelection String
+  status              String             @default("ACTIVE")
+  repositories        GitHubRepository[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@index([accountLogin])
+}
+
+model GitHubRepository {
+  id                   String             @id @default(cuid())
+  installationId       String
+  installation         GitHubInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  githubId             String             @unique
+  fullName             String
+  ownerLogin           String
+  name                 String
+  private              Boolean            @default(false)
+  archived             Boolean            @default(false)
+  disabled             Boolean            @default(false)
+  defaultBranch        String              @default("main")
+  htmlUrl              String
+  cloneUrl             String
+  sshUrl               String
+  githubUpdatedAt      DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@unique([installationId, fullName])
+  @@index([fullName])
+}
+
+model GitHubWebhookDelivery {
+  deliveryId        String   @id
+  event             String
+  action            String?
+  installationId    String?
+  repositoryFullName String?
+  status            String   @default("RECEIVED")
+  projectCount      Int      @default(0)
+  errorMessage      String?
+  receivedAt        DateTime @default(now())
+  processedAt       DateTime?
+
+  @@index([event, receivedAt])
+  @@index([installationId, receivedAt])
 }

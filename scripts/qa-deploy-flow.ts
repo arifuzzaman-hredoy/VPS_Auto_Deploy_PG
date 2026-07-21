@@ -57,10 +57,11 @@ pass('GitHub Actions template retry, idempotency and concurrency fields');
 
 const deployScript = readFileSync(join(root, 'scripts/deploy-vps.sh'), 'utf8');
 assert.ok(deployScript.includes('git config --local core.sshCommand'));
-assert.ok(deployScript.includes('pm2 startOrReload'));
-assert.ok(!deployScript.includes('pm2 delete deploy-os'));
+assert.ok(deployScript.includes('pm2 delete "$app_name"'));
+assert.ok(deployScript.includes('pm2 start ecosystem.config.cjs --update-env'));
+assert.ok(!deployScript.includes('pm2 startOrReload'));
 assert.ok(!deployScript.includes('fuser -k 3000'));
-pass('VPS deployment uses repository-scoped SSH and graceful PM2 reload');
+pass('VPS deployment uses repository-scoped SSH and fresh PM2 process definitions');
 
 const envExample = readFileSync(join(root, '.env.example'), 'utf8');
 assert.ok(envExample.includes('RUNNER_PUBLIC_SCHEME=http'));

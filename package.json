@@ -13,7 +13,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:generate": "npm run db:generate -w apps/api",
     "db:push": "npm run db:push -w apps/api",
-    "qa:deploy": "tsx scripts/qa-deploy-flow.ts"
+    "qa:deploy": "tsx scripts/qa-deploy-flow.ts && tsx scripts/qa-deploy-flow-runtime-check.ts"
   },
   "engines": {
     "node": ">=22.0.0",

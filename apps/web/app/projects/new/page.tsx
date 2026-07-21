@@ -8,10 +8,13 @@ type ProjectForm = {
   slug: string;
   repoUrl: string;
   branch: string;
+  rootDirectory: string;
   domain: string;
+  installCommand: string;
   buildCommand: string;
   startCommand: string;
   appPort: string;
+  healthPath: string;
   databaseName: string;
   databaseUser: string;
   databasePassword: string;
@@ -36,10 +39,13 @@ const initialForm: ProjectForm = {
   slug: "",
   repoUrl: "",
   branch: "main",
+  rootDirectory: ".",
   domain: "",
-  buildCommand: "npm run build",
-  startCommand: "npm run start",
+  installCommand: "",
+  buildCommand: "",
+  startCommand: "",
   appPort: "3000",
+  healthPath: "/",
   databaseName: "",
   databaseUser: "",
   databasePassword: "",
@@ -102,11 +108,8 @@ export default function NewProjectPage() {
   const [envErrors, setEnvErrors] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ type: "idle", message: "" });
   const [databaseProvisioned, setDatabaseProvisioned] = useState(false);
-
-  const deployToken = useMemo(() => {
-    const seed = form.slug || "project-slug";
-    return `dep_live_${seed}_replace_with_generated_secret`;
-  }, [form.slug]);
+  const [deployToken, setDeployToken] = useState("");
+  const [deployTokenMessage, setDeployTokenMessage] = useState("");
 
   const yaml = useMemo(() => {
     return `name: Deploy with Hredoy Deploy OS
@@ -120,6 +123,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: hredoy-deploy-\${{ github.repository }}-\${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   trigger-deploy:
     runs-on: ubuntu-latest
@@ -130,14 +137,17 @@ jobs:
           DEPLOY_API_URL: \${{ secrets.DEPLOY_API_URL }}
           DEPLOY_TOKEN: \${{ secrets.DEPLOY_TOKEN }}
         run: |
-          curl -fsSL -X POST "$DEPLOY_API_URL/api/deployments/trigger" \\
+          curl --fail-with-body --silent --show-error \\
+            --retry 3 --retry-all-errors \\
+            -X POST "$DEPLOY_API_URL/api/deployments/trigger" \\
             -H "Authorization: Bearer $DEPLOY_TOKEN" \\
             -H "Content-Type: application/json" \\
             -d '{
               "repository": "\${{ github.repository }}",
               "branch": "\${{ github.ref_name }}",
               "commit": "\${{ github.sha }}",
-              "runId": "\${{ github.run_id }}"
+              "runId": "\${{ github.run_id }}",
+              "runAttempt": "\${{ github.run_attempt }}"
             }'`;
   }, [form.branch]);
 
@@ -152,10 +162,11 @@ jobs:
   const completionItems = [
     { label: "Project identity", done: Boolean(form.name.trim() && form.slug.trim()) },
     { label: "GitHub repo URL", done: Boolean(form.repoUrl.trim()) },
-    { label: "Deploy key step", done: deployKeyGenerated },
-    { label: "Build config", done: Boolean(form.buildCommand.trim() && form.startCommand.trim() && form.appPort.trim()) },
+    { label: "Deploy key", done: deployKeyGenerated },
+    { label: "Runtime config", done: Boolean(form.appPort.trim() && form.healthPath.trim()) },
+    { label: "Environment optional", done: !form.envFileName || envErrors.length === 0 },
     { label: "Database optional", done: databaseProvisioned || (!form.databaseName && !form.databaseUser && !form.databasePassword) },
-    { label: ".env parsed", done: Boolean(form.envFileName && envErrors.length === 0) },
+    { label: "CI/CD token", done: Boolean(deployToken) },
     { label: "Generated YAML", done: Boolean(yaml) },
   ];
 
@@ -198,6 +209,13 @@ jobs:
     slug: form.slug.trim(),
     repoUrl: form.repoUrl.trim(),
     defaultBranch: form.branch.trim() || "main",
+    rootDirectory: form.rootDirectory.trim() || ".",
+    installCommand: form.installCommand.trim() || null,
+    buildCommand: form.buildCommand.trim(),
+    startCommand: form.startCommand.trim(),
+    appPort: Number(form.appPort),
+    healthPath: form.healthPath.trim() || "/",
+    primaryDomain: form.domain.trim() || null,
   });
 
   const validateProjectIdentity = () => {
@@ -205,10 +223,15 @@ jobs:
     if (!form.slug.trim()) return "Project slug is required before generating a deploy key.";
     if (!/^[a-z0-9-]+$/.test(form.slug)) return "Slug can contain only lowercase letters, numbers and hyphen.";
     if (!form.repoUrl.trim()) return "GitHub repo URL is required before generating a deploy key.";
-    try {
-      new URL(form.repoUrl.trim());
-    } catch {
-      return "Enter a valid GitHub repository URL.";
+    const repositoryValue = form.repoUrl.trim();
+    const isSsh = /^git@github\.com:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/i.test(repositoryValue);
+    if (!isSsh) {
+      try {
+        const repositoryUrl = new URL(repositoryValue);
+        if (repositoryUrl.hostname.toLowerCase() !== "github.com") return "Only github.com repositories are supported.";
+      } catch {
+        return "Enter a valid GitHub HTTPS or SSH repository URL.";
+      }
     }
     return "";
   };
@@ -275,6 +298,19 @@ jobs:
     return { publicKey, fingerprint, reused };
   };
 
+  const requestDeployToken = async (resolvedProjectId: string) => {
+    const response = await fetch(`/api/projects/${resolvedProjectId}/deploy-token`, { method: "POST" });
+    const payload = await parseApiPayload(response);
+    if (!response.ok) {
+      throw new Error(typeof payload.message === "string" ? payload.message : "Deploy token generation failed.");
+    }
+    const token = typeof payload.token === "string" ? payload.token : "";
+    if (!token.startsWith("dep_live_")) throw new Error("Deploy OS returned an invalid CI/CD token.");
+    setDeployToken(token);
+    setDeployTokenMessage(typeof payload.message === "string" ? payload.message : "Copy this token now.");
+    return token;
+  };
+
   const generateDeployKey = async () => {
     setDeployKeyStatus({ type: "loading", message: "Saving project draft and generating a real Ed25519 key...", publicKey: "", fingerprint: "" });
     try {
@@ -297,6 +333,9 @@ jobs:
     if (!form.slug.trim()) return "Project slug is required.";
     if (!/^[a-z0-9-]+$/.test(form.slug)) return "Slug can contain only lowercase letters, numbers and hyphen.";
     if (!form.repoUrl.trim()) return "GitHub repo URL is required.";
+    if (!/^(?:\.|[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)$/.test(form.rootDirectory.trim() || ".")) return "Root directory must be a safe relative path.";
+    if (!/^\d+$/.test(form.appPort) || Number(form.appPort) < 1 || Number(form.appPort) > 65535) return "App port must be between 1 and 65535.";
+    if (!form.healthPath.trim().startsWith("/")) return "Health check path must start with /.";
     if (form.databasePassword && form.databasePassword.length < 12) return "Database password must be at least 12 characters.";
     if (envErrors.length > 0) return "Fix .env parsing errors before save.";
     return "";
@@ -320,11 +359,16 @@ jobs:
         followUps.push("real Ed25519 deploy key generated");
       }
 
+      if (!deployToken) {
+        await requestDeployToken(resolvedProjectId);
+        followUps.push("project CI/CD token generated");
+      }
+
       if (Object.keys(envVariables).length > 0) {
         const envResponse = await fetch(`/api/projects/${resolvedProjectId}/env`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ environment: "production", variables: envVariables }),
+          body: JSON.stringify({ environment: "production", variables: envVariables, replace: true }),
         });
         if (!envResponse.ok) throw new Error("Project saved, but .env save failed.");
         followUps.push(`${Object.keys(envVariables).length} env variables encrypted`);
@@ -392,6 +436,8 @@ jobs:
               setEnvVariables({});
               setEnvErrors([]);
               setDatabaseProvisioned(false);
+              setDeployToken("");
+              setDeployTokenMessage("");
               setSaveStatus({ type: "idle", message: "" });
             }}
           >
@@ -447,6 +493,9 @@ jobs:
               <Field label="Default branch" hint="The branch that triggers production deploys">
                 <input className="input" value={form.branch} onChange={(event) => updateForm("branch", event.target.value)} placeholder="main" />
               </Field>
+              <Field label="Root directory" hint="Use . for repository root, or a monorepo folder such as apps/web">
+                <input className="input" value={form.rootDirectory} onChange={(event) => updateForm("rootDirectory", event.target.value)} placeholder="." />
+              </Field>
               <Field label="Primary domain" hint="Optional. You can add it later">
                 <input className="input" value={form.domain} onChange={(event) => updateForm("domain", event.target.value)} placeholder="app.example.com" />
               </Field>
@@ -466,15 +515,21 @@ jobs:
               <span className="badge">{deployKeyGenerated ? "Key ready" : "Key required"}</span>
             </div>
 
-            <div className="form-grid three">
-              <Field label="Build command" hint="Runs before the app starts">
-                <input className="input" value={form.buildCommand} onChange={(event) => updateForm("buildCommand", event.target.value)} />
+            <div className="form-grid">
+              <Field label="Install command" hint="Optional. Leave blank to use automatic package-manager detection">
+                <input className="input" value={form.installCommand} onChange={(event) => updateForm("installCommand", event.target.value)} placeholder="npm ci" />
               </Field>
-              <Field label="Start command" hint="Runs the production process">
-                <input className="input" value={form.startCommand} onChange={(event) => updateForm("startCommand", event.target.value)} />
+              <Field label="Build command" hint="Optional. Leave blank to auto-detect the package build script">
+                <input className="input" value={form.buildCommand} onChange={(event) => updateForm("buildCommand", event.target.value)} placeholder="Auto detect" />
               </Field>
-              <Field label="Application port" hint="The local port used by the app">
+              <Field label="Start command" hint="Optional. Leave blank to auto-detect the package start script">
+                <input className="input" value={form.startCommand} onChange={(event) => updateForm("startCommand", event.target.value)} placeholder="Auto detect" />
+              </Field>
+              <Field label="Application port" hint="The port exposed by the application inside its container">
                 <input className="input" inputMode="numeric" value={form.appPort} onChange={(event) => updateForm("appPort", event.target.value)} />
+              </Field>
+              <Field label="Health check path" hint="Deployment is promoted only after this path responds">
+                <input className="input" value={form.healthPath} onChange={(event) => updateForm("healthPath", event.target.value)} placeholder="/api/health" />
               </Field>
             </div>
 
@@ -599,8 +654,30 @@ jobs:
 
             <div className="review-list" style={{ marginTop: 16 }}>
               <ReviewRow label="DEPLOY_API_URL" value="https://vps.techteamlead.com" />
-              <ReviewRow label="DEPLOY_TOKEN" value={deployToken} />
+              <ReviewRow label="DEPLOY_TOKEN" value={deployToken || "Save project to generate"} />
             </div>
+
+            {deployToken ? (
+              <div className="stack" style={{ marginTop: 16 }}>
+                <div className="toast success">{deployTokenMessage || "CI/CD token generated. Copy it now; it cannot be displayed again after refresh."}</div>
+                <pre className="code" style={{ overflowWrap: "anywhere", wordBreak: "break-all" }}>{deployToken}</pre>
+                <div className="inline-actions">
+                  <button className="btn secondary" type="button" onClick={() => copyText("token", deployToken)}>
+                    {copiedTarget === "token" ? "Copied" : "Copy DEPLOY_TOKEN"}
+                  </button>
+                  <button className="btn secondary" type="button" onClick={async () => {
+                    try {
+                      const resolvedProjectId = await ensureProject();
+                      await requestDeployToken(resolvedProjectId);
+                    } catch (caughtError) {
+                      setSaveStatus({ type: "error", message: caughtError instanceof Error ? caughtError.message : "Token rotation failed." });
+                    }
+                  }}>Rotate token</button>
+                </div>
+              </div>
+            ) : (
+              <div className="notice" style={{ marginTop: 16 }}>Save the project once to generate its real one-time CI/CD token.</div>
+            )}
           </section>
         </div>
 
@@ -632,8 +709,11 @@ jobs:
               <ReviewRow label="Slug" value={form.slug || "Not set"} />
               <ReviewRow label="Repository" value={form.repoUrl || "Not set"} />
               <ReviewRow label="Branch" value={form.branch || "main"} />
+              <ReviewRow label="Root directory" value={form.rootDirectory || "."} />
               <ReviewRow label="Domain" value={form.domain || "Not set"} />
               <ReviewRow label="Port" value={form.appPort || "Not set"} />
+              <ReviewRow label="Health" value={form.healthPath || "/"} />
+              <ReviewRow label="CI/CD" value={deployToken ? "Token generated" : "Token not generated"} />
               <ReviewRow label="Database" value={form.databaseName ? `${form.databaseName}${databaseProvisioned ? " · provisioned" : ""}` : "Skipped"} />
               <ReviewRow label="DB password" value={mask(form.databasePassword)} />
               <ReviewRow label="Environment" value={form.envFileName || "Not uploaded"} />
@@ -647,6 +727,10 @@ jobs:
               <div className={`toast ${saveStatus.type === "success" ? "success" : saveStatus.type === "error" ? "error" : ""}`} style={{ marginTop: 12 }}>
                 {saveStatus.message}
               </div>
+            ) : null}
+
+            {projectId && saveStatus.type === "success" ? (
+              <a className="btn secondary" href={`/projects/${projectId}`} style={{ width: "100%", marginTop: 12 }}>Open project dashboard</a>
             ) : null}
           </section>
 

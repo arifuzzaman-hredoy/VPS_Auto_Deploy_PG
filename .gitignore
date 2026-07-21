@@ -43,3 +43,5 @@ apps/api/prisma/dev.db
 apps/api/prisma/dev.db-journal
 
 *.tsbuildinfo
+
+.deploy-state/

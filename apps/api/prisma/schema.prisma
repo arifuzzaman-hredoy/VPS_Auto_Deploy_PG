@@ -29,6 +29,7 @@ enum DeploymentStatus {
   HEALTH_CHECKING
   UPDATING_PROXY
   LIVE
+  SUPERSEDED
   FAILED
 }
 
@@ -61,6 +62,7 @@ enum SslStatus {
 enum RouteStatus {
   PENDING
   LIVE
+  SUPERSEDED
   FAILED
 }
 
@@ -79,12 +81,22 @@ model Project {
   owner           User                  @relation(fields: [ownerId], references: [id])
   name            String
   slug            String                @unique
-  repoUrl         String?
-  sourceType      SourceType            @default(GITHUB)
-  defaultBranch   String                @default("main")
-  framework       String?
-  status          String                @default("CREATED")
-  liveUrl         String?
+  repoUrl            String?
+  repositoryFullName String?             @unique
+  sourceType         SourceType          @default(GITHUB)
+  defaultBranch      String              @default("main")
+  rootDirectory      String              @default(".")
+  installCommand     String?
+  buildCommand       String              @default("")
+  startCommand       String              @default("")
+  appPort            Int                 @default(3000)
+  healthPath         String              @default("/")
+  primaryDomain      String?
+  deployTokenHash    String?
+  deployTokenPrefix  String?
+  framework          String?
+  status             String              @default("CREATED")
+  liveUrl            String?
   deployKeys      DeployKey[]
   workflowFiles   WorkflowFile[]
   envVars         EnvironmentVariable[]
@@ -157,14 +169,21 @@ model Deployment {
   source        SourceType       @default(GITHUB)
   branch        String
   commitSha     String?
+  externalRunId String?
+  runAttempt    Int?
   status        DeploymentStatus @default(CREATED)
   imageTag      String?
   containerName String?
+  hostPort      Int?
+  routeHostname String?
   startedAt     DateTime?
   finishedAt    DateTime?
   liveAt        DateTime?
   logs          DeploymentLog[]
   createdAt     DateTime         @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([status, createdAt])
 }
 
 model DeploymentLog {

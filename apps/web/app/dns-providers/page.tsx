@@ -1,115 +1,87 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../components/AppShell';
 
-const providers = [
-  ['Cloudflare', 'Zone token with DNS edit scope'],
-  ['Namecheap', 'API user, key and whitelisted VPS IP'],
-  ['DigitalOcean DNS', 'Personal access token'],
-  ['AWS Route53', 'Scoped IAM access key'],
-  ['GoDaddy', 'API key and secret'],
-  ['cPanel / WHM', 'Zone editor or WHM API token'],
-  ['Custom provider', 'Adapter implementation'],
-];
-
-const safetySteps = [
-  ['1', 'Save credential', 'Encrypt provider credentials in Deploy OS.'],
-  ['2', 'Test connection', 'Verify account access without changing DNS.'],
-  ['3', 'Preview changes', 'Show the exact records that would be created.'],
-  ['4', 'Dry run', 'Validate provider response and permissions.'],
-  ['5', 'Confirm apply', 'Require an explicit final confirmation.'],
-];
+type Provider = { id: string; provider: string; providerName: string; allowedZone?: string | null; status: string; createdAt: string };
 
 export default function DnsProvidersPage() {
+  const [providerName, setProviderName] = useState('');
+  const [allowedZone, setAllowedZone] = useState('');
+  const [apiToken, setApiToken] = useState('');
+  const [rows, setRows] = useState<Provider[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/dns-providers', { cache: 'no-store' });
+      const payload = await response.json().catch(() => []);
+      if (!response.ok) throw new Error(payload.message || 'DNS providers could not be loaded.');
+      setRows(Array.isArray(payload) ? payload : []);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'DNS providers could not be loaded.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const save = async () => {
+    setWorking(true); setMessage('');
+    try {
+      const response = await fetch('/api/dns-providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'cloudflare', providerName, allowedZone, credential: { apiToken } }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || 'Cloudflare connection failed.');
+      setMessage(`Cloudflare connection ${payload.providerName} saved and verified.`);
+      setProviderName(''); setAllowedZone(''); setApiToken('');
+      await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Cloudflare connection failed.'); }
+    finally { setWorking(false); }
+  };
+
+  const test = async (row: Provider) => {
+    setMessage(`Testing ${row.providerName}…`);
+    const response = await fetch(`/api/dns-providers/${row.id}/test`, { method: 'POST' });
+    const payload = await response.json().catch(() => ({}));
+    setMessage(payload.message || (response.ok ? 'Connection verified.' : 'Connection test failed.'));
+    await load();
+  };
+
+  const remove = async (row: Provider) => {
+    if (!window.confirm(`Delete DNS connection ${row.providerName}?`)) return;
+    const response = await fetch(`/api/dns-providers/${row.id}`, { method: 'DELETE' });
+    const payload = await response.json().catch(() => ({}));
+    setMessage(response.ok ? `${row.providerName} deleted.` : payload.message || 'Delete failed.');
+    await load();
+  };
+
   return (
-    <AppShell
-      active="dns"
-      title="DNS providers"
-      description="Connect provider credentials, test access and review record changes before applying them."
-      backHref="/"
-      backLabel="Dashboard"
-      actions={<button className="btn">Add provider</button>}
-    >
+    <AppShell active="dns" title="DNS providers" description="Connect an optional Cloudflare token for zone-aware DNS automation. Manual DNS remains available on every project." backHref="/" backLabel="Dashboard">
       <section className="content-grid">
         <div className="stack">
           <section className="panel">
-            <div className="panel-header">
-              <div className="section-heading">
-                <span className="section-number">1</span>
-                <div>
-                  <p className="panel-kicker">Connection</p>
-                  <h2 className="panel-title">Provider credentials</h2>
-                  <p className="panel-subtitle">Limit each credential to the smallest required zone and permission scope.</p>
-                </div>
-              </div>
-            </div>
-
+            <div className="panel-header"><div><p className="panel-kicker">Cloudflare connection</p><h2 className="panel-title">Add a scoped API token</h2><p className="panel-subtitle">Use a token limited to Zone Read and DNS Edit for one zone.</p></div></div>
             <div className="form-grid">
-              <div className="field">
-                <label>Provider</label>
-                <select className="input" defaultValue="cloudflare">
-                  <option value="cloudflare">Cloudflare</option>
-                  <option value="namecheap">Namecheap</option>
-                  <option value="digitalocean">DigitalOcean DNS</option>
-                  <option value="route53">AWS Route53</option>
-                  <option value="custom">Custom provider</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>Connection label</label>
-                <input className="input" placeholder="Client Cloudflare account" />
-              </div>
-              <div className="field full">
-                <label>Allowed zone</label>
-                <input className="input" placeholder="example.com" />
-                <small>This connection should not modify any other zone.</small>
-              </div>
-              <div className="field full">
-                <label>Credential JSON</label>
-                <textarea className="textarea" placeholder='{"apiToken":"********"}' />
-                <small>The value is encrypted before it is stored.</small>
-              </div>
+              <div className="field"><label>Connection label</label><input className="input" value={providerName} onChange={(event) => setProviderName(event.target.value)} placeholder="Client Cloudflare account" /></div>
+              <div className="field"><label>Allowed zone</label><input className="input" value={allowedZone} onChange={(event) => setAllowedZone(event.target.value)} placeholder="example.com" /></div>
+              <div className="field full"><label>Cloudflare API token</label><input className="input" type="password" value={apiToken} onChange={(event) => setApiToken(event.target.value)} placeholder="Scoped API token" /><small>The token is verified before being encrypted and stored.</small></div>
             </div>
-
-            <div className="inline-actions" style={{ marginTop: 16 }}>
-              <button className="btn">Save provider</button>
-              <button className="btn secondary">Test connection</button>
-              <button className="btn secondary">Run dry test</button>
-            </div>
+            <div className="inline-actions" style={{ marginTop: 16 }}><button className="btn" type="button" disabled={working || !providerName.trim() || !allowedZone.trim() || apiToken.length < 20} onClick={save}>{working ? 'Verifying…' : 'Verify and save'}</button></div>
+            {message ? <div className="toast" style={{ marginTop: 16 }}>{message}</div> : null}
           </section>
 
           <section className="panel">
-            <div className="panel-header">
-              <div className="section-heading">
-                <span className="section-number">2</span>
-                <div>
-                  <p className="panel-kicker">Supported integrations</p>
-                  <h2 className="panel-title">Provider requirements</h2>
-                  <p className="panel-subtitle">Choose the provider that manages the project domain.</p>
-                </div>
-              </div>
-            </div>
-            <div className="table-wrap">
-              <table className="table">
-                <thead><tr><th>Provider</th><th>Required access</th></tr></thead>
-                <tbody>
-                  {providers.map(([name, requirement]) => <tr key={name}><td>{name}</td><td>{requirement}</td></tr>)}
-                </tbody>
-              </table>
-            </div>
+            <div className="panel-header"><div><p className="panel-kicker">Saved connections</p><h2 className="panel-title">DNS provider accounts</h2></div><button className="btn secondary" type="button" onClick={load}>Refresh</button></div>
+            {loading ? <div className="empty-state">Loading connections…</div> : rows.length === 0 ? <div className="empty-state">No provider connection saved. Project domains can still be configured manually.</div> : <div className="table-wrap"><table className="table"><thead><tr><th>Label</th><th>Provider</th><th>Allowed zone</th><th>Status</th><th>Actions</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.providerName}</strong></td><td>{row.provider}</td><td>{row.allowedZone || '—'}</td><td><span className="badge">{row.status}</span></td><td><div className="inline-actions"><button className="btn secondary small" type="button" onClick={() => void test(row)}>Test</button><button className="btn secondary small" type="button" onClick={() => void remove(row)}>Delete</button></div></td></tr>)}</tbody></table></div>}
           </section>
         </div>
 
-        <aside className="stack summary-panel">
-          <section className="panel">
-            <p className="panel-kicker">Safe write process</p>
-            <h2 className="panel-title">Before changing DNS</h2>
-            <div className="flow" style={{ marginTop: 14 }}>
-              {safetySteps.map(([number, title, text]) => (
-                <div className="step" key={number}><span className="step-no">{number}</span><p><strong>{title}</strong>{text}</p></div>
-              ))}
-            </div>
-          </section>
-          <div className="notice"><strong>Rule:</strong> The apply action stays disabled until connection test and dry run both pass.</div>
-        </aside>
+        <aside className="stack summary-panel"><section className="panel"><p className="panel-kicker">Safe process</p><h2 className="panel-title">DNS connection rules</h2><div className="flow" style={{ marginTop: 14 }}>{[['1','Scope token','Allow only Zone Read and DNS Edit.'],['2','Limit zone','Deploy OS verifies the exact allowed zone.'],['3','Preview records','Project Domains shows records before saving.'],['4','Verify DNS','Route and ownership records must resolve.']].map(([number,title,text]) => <div className="step" key={number}><span className="step-no">{number}</span><p><strong>{title}</strong>{text}</p></div>)}</div></section><div className="notice"><strong>Current automation:</strong> Cloudflare credential verification is live. DNS record creation remains confirmation-first from the project domain workflow.</div></aside>
       </section>
     </AppShell>
   );

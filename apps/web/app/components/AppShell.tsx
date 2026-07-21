@@ -22,8 +22,6 @@ type AppShellProps = {
 const navItems: NavItem[] = [
   { href: '/', label: 'Dashboard', hint: 'Overview' },
   { href: '/projects/new', label: 'New Project', hint: 'Setup and deploy' },
-  { href: '/projects/demo/domains', label: 'Domains', hint: 'DNS and SSL' },
-  { href: '/projects/demo/env', label: 'Environment', hint: 'Secrets' },
   { href: '/dns-providers', label: 'DNS Providers', hint: 'Credentials' },
   { href: '/database', label: 'Database', hint: 'All saved records' },
   { href: '/logs', label: 'Logs', hint: 'Activity and deploy logs' },

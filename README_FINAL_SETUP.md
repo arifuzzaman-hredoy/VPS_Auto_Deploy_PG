@@ -1,33 +1,12 @@
-# TechTeam Deploy OS - Final ZIP Setup
+# Final setup checklist
 
-This ZIP includes the latest VPS production fixes:
+1. Fill `/var/www/techteam-deploy-os/.env` from `.env.example`.
+2. Point the control-panel domain and wildcard apps domain to the VPS.
+3. Verify the repository-specific deploy key with `git ls-remote origin HEAD`.
+4. Run `npm install`, `npm run db:generate`, `npm run qa:deploy`, `npm run typecheck`, `npm run build`.
+5. Run `bash scripts/deploy-vps.sh`.
+6. Confirm API health and all three PM2 services.
+7. Create a test project, add its deploy key and GitHub secrets, then push a commit.
+8. Confirm the project reaches `LIVE`, its URL opens and a failed replacement leaves the previous deployment online.
 
-- BullMQ Redis connection type fix
-- `pg` TypeScript types
-- VPS-safe PostgreSQL/Redis ports: `15434` and `6380`
-- GitHub Actions workflow: `.github/workflows/deploy-vps.yml`
-- VPS deploy script with wait/retry health checks: `scripts/deploy-vps.sh`
-
-## Local setup
-
-```powershell
-cd "G:\Current Project\Development\VPS Project\techteam-deploy-os-code"
-npm install
-npm run db:generate
-npm run build
-code .
-```
-
-## Production URL
-
-- https://vps.techteamlead.com
-- https://vps.techteamlead.com/api/health
-
-## GitHub Actions secrets needed
-
-- `VPS_HOST`
-- `VPS_USER`
-- `VPS_PORT`
-- `VPS_SSH_KEY_B64`
-
-Never commit `.env` or private keys.
+Full instructions: `docs/DEPLOYMENT_GUIDE.md`.

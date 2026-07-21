@@ -16,6 +16,7 @@ export type DeploymentStatus =
   | 'HEALTH_CHECKING'
   | 'UPDATING_PROXY'
   | 'LIVE'
+  | 'SUPERSEDED'
   | 'FAILED';
 
 export type DomainType =

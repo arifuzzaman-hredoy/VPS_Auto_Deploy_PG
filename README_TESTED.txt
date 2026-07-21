@@ -1,8 +1,12 @@
-Package verification performed in sandbox:
-- File structure generated
-- JSON package files parsed
-- ZIP archive integrity tested
+Hredoy Deploy OS validation scope
 
-Note:
-This is a coded MVP scaffold. It includes the real module structure, APIs, Prisma schema, UI, runner skeleton, and templates.
-Full production deployment still requires installing dependencies, configuring a VPS, real DNS provider credentials, and hardening provider-specific adapters.
+- API, runner, web and shared TypeScript typecheck
+- Next.js production compilation and route generation
+- Repository URL normalization
+- One-time deploy token generation and verification
+- Framework detection
+- Generated Dockerfile build-secret safety checks
+- GitHub Actions trigger template checks
+- VPS deployment script syntax and repository-scoped SSH checks
+
+Run: npm run qa:deploy && npm run typecheck && npm run build

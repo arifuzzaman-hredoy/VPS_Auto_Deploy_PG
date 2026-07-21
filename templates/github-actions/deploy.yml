@@ -1,29 +1,36 @@
-name: Deploy with VPS Deploy OS
+name: Deploy with Hredoy Deploy OS
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: hredoy-deploy-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   trigger-deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Trigger Deploy OS
+      - name: Trigger Hredoy Deploy OS
         env:
           DEPLOY_API_URL: ${{ secrets.DEPLOY_API_URL }}
           DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
-          curl -fsSL -X POST "$DEPLOY_API_URL/api/deployments/trigger" \
+          curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors \
+            -X POST "$DEPLOY_API_URL/api/deployments/trigger" \
             -H "Authorization: Bearer $DEPLOY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
               "repository": "${{ github.repository }}",
               "branch": "${{ github.ref_name }}",
               "commit": "${{ github.sha }}",
-              "runId": "${{ github.run_id }}"
+              "runId": "${{ github.run_id }}",
+              "runAttempt": "${{ github.run_attempt }}"
             }'

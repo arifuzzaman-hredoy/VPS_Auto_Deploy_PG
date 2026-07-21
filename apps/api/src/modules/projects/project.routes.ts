@@ -2,13 +2,34 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma.js';
 import { encryptSecret } from '../../lib/crypto.js';
+import { createDeployToken } from '../../lib/deploy-token.js';
+import { parseGitHubRepository } from '../../lib/repository.js';
 import { generateOpenSshEd25519KeyPair } from '../../lib/ssh-key.js';
+import { normalizeHostname } from '../../lib/validation.js';
+
+const commandSchema = z.string().trim().max(300).refine(
+  (value) => !/[\r\n\0]/.test(value),
+  'Commands cannot contain line breaks.',
+);
+
+
+const rootDirectorySchema = z.string().trim().max(200).default('.').transform((value) => value || '.').refine(
+  (value) => value === '.' || (!value.startsWith('/') && !value.includes('\\') && value.split('/').every((part) => part && part !== '.' && part !== '..')),
+  'Root directory must be a safe relative path inside the repository.',
+);
 
 const projectBodySchema = z.object({
-  name: z.string().trim().min(2),
-  slug: z.string().trim().regex(/^[a-z0-9-]+$/),
-  repoUrl: z.string().trim().url().optional(),
-  defaultBranch: z.string().trim().min(1).default('main'),
+  name: z.string().trim().min(2).max(100),
+  slug: z.string().trim().min(2).max(63).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  repoUrl: z.string().trim().min(1),
+  defaultBranch: z.string().trim().min(1).max(120).default('main'),
+  rootDirectory: rootDirectorySchema,
+  installCommand: commandSchema.optional().nullable(),
+  buildCommand: commandSchema.default(''),
+  startCommand: commandSchema.default(''),
+  appPort: z.coerce.number().int().min(1).max(65535).default(3000),
+  healthPath: z.string().trim().max(200).default('/').transform((value) => value.startsWith('/') ? value : `/${value}`),
+  primaryDomain: z.string().trim().optional().nullable(),
 });
 
 const updateProjectSchema = projectBodySchema.partial().refine(
@@ -25,15 +46,48 @@ function isUniqueConstraintError(error: unknown): boolean {
   );
 }
 
+function normalizeProjectData(body: z.infer<typeof projectBodySchema> | z.infer<typeof updateProjectSchema>) {
+  const data: Record<string, unknown> = { ...body };
+  if (typeof body.repoUrl === 'string') {
+    const repository = parseGitHubRepository(body.repoUrl);
+    data.repoUrl = repository.httpsUrl;
+    data.repositoryFullName = repository.fullName.toLowerCase();
+  }
+  if ('primaryDomain' in body) {
+    data.primaryDomain = body.primaryDomain ? normalizeHostname(body.primaryDomain) : null;
+  }
+  if ('installCommand' in body) {
+    data.installCommand = body.installCommand || null;
+  }
+  return data;
+}
+
+const projectInclude = {
+  domains: { orderBy: { createdAt: 'desc' as const } },
+  databases: { orderBy: { createdAt: 'desc' as const }, take: 1 },
+  deployments: {
+    orderBy: { createdAt: 'desc' as const },
+    take: 10,
+    include: { logs: { orderBy: { createdAt: 'asc' as const }, take: 200 } },
+  },
+  _count: { select: { envVars: true, deployKeys: true, deployments: true, domains: true } },
+};
+
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/', async () => {
-    return prisma.project.findMany({
-      orderBy: { createdAt: 'desc' },
+    const projects = await prisma.project.findMany({
+      orderBy: { updatedAt: 'desc' },
       include: {
-        domains: true,
+        domains: { where: { isPrimary: true }, take: 1 },
         deployments: { take: 1, orderBy: { createdAt: 'desc' } },
+        _count: { select: { envVars: true, domains: true, deployments: true } },
       },
     });
+    return projects.map((project: any) => ({
+      ...project,
+      deployTokenHash: undefined,
+      deployTokenConfigured: Boolean(project.deployTokenHash),
+    }));
   });
 
   app.post('/', async (request, reply) => {
@@ -44,27 +98,24 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       update: {},
     });
 
+    const normalizedData = normalizeProjectData(body);
     const existing = await prisma.project.findUnique({ where: { slug: body.slug } });
     if (existing) {
       const project = await prisma.project.update({
         where: { id: existing.id },
-        data: {
-          name: body.name,
-          repoUrl: body.repoUrl,
-          defaultBranch: body.defaultBranch,
-        },
+        data: normalizedData as never,
       });
-      return reply.send({ ...project, reused: true });
+      return reply.send({ ...project, deployTokenHash: undefined, deployTokenConfigured: Boolean(project.deployTokenHash), reused: true });
     }
 
     try {
       const project = await prisma.project.create({
-        data: { ownerId: user.id, ...body, sourceType: 'GITHUB' },
+        data: { ownerId: user.id, ...normalizedData, name: body.name, slug: body.slug, sourceType: 'GITHUB' } as never,
       });
-      return reply.code(201).send(project);
+      return reply.code(201).send({ ...project, deployTokenHash: undefined, deployTokenConfigured: false });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
-        return reply.code(409).send({ message: 'A project with this slug already exists.' });
+        return reply.code(409).send({ message: 'This project slug or GitHub repository is already connected.' });
       }
       throw error;
     }
@@ -73,19 +124,36 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/:projectId', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
     const body = updateProjectSchema.parse(request.body);
-
     const existing = await prisma.project.findUnique({ where: { id: projectId } });
     if (!existing) return reply.code(404).send({ message: 'Project not found' });
 
     try {
-      const project = await prisma.project.update({ where: { id: projectId }, data: body });
-      return reply.send(project);
+      const project = await prisma.project.update({ where: { id: projectId }, data: normalizeProjectData(body) as never });
+      return reply.send({ ...project, deployTokenHash: undefined, deployTokenConfigured: Boolean(project.deployTokenHash) });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
-        return reply.code(409).send({ message: 'A project with this slug already exists.' });
+        return reply.code(409).send({ message: 'This project slug or GitHub repository is already connected.' });
       }
       throw error;
     }
+  });
+
+  app.post('/:projectId/deploy-token', async (request, reply) => {
+    const { projectId } = request.params as { projectId: string };
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return reply.code(404).send({ message: 'Project not found' });
+
+    const generated = createDeployToken(project.slug);
+    await prisma.project.update({
+      where: { id: projectId },
+      data: { deployTokenHash: generated.hash, deployTokenPrefix: generated.prefix, status: 'READY_FOR_CI' },
+    });
+
+    return reply.code(201).send({
+      token: generated.token,
+      prefix: generated.prefix,
+      message: 'Copy this token now. Deploy OS stores only its hash and cannot show it again.',
+    });
   });
 
   app.post('/:projectId/deploy-keys', async (request, reply) => {
@@ -108,7 +176,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    const generated = generateOpenSshEd25519KeyPair(`deploy-os-${project.slug}`);
+    const generated = generateOpenSshEd25519KeyPair(`hredoy-deploy-${project.slug}`);
     const deployKey = await prisma.deployKey.create({
       data: {
         projectId,
@@ -133,27 +201,17 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return reply.code(404).send({ message: 'Project not found' });
 
-    const keys = await prisma.deployKey.findMany({
+    return prisma.deployKey.findMany({
       where: { projectId },
       orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        publicKey: true,
-        fingerprint: true,
-        isActive: true,
-        createdAt: true,
-      },
+      select: { id: true, publicKey: true, fingerprint: true, isActive: true, createdAt: true },
     });
-    return reply.send(keys);
   });
 
   app.get('/:projectId', async (request, reply) => {
     const { projectId } = request.params as { projectId: string };
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: { domains: true, deployments: true, envVars: true, databases: true },
-    });
+    const project = await prisma.project.findUnique({ where: { id: projectId }, include: projectInclude });
     if (!project) return reply.code(404).send({ message: 'Project not found' });
-    return project;
+    return { ...project, deployTokenHash: undefined, deployTokenConfigured: Boolean(project.deployTokenHash) };
   });
 }

@@ -12,13 +12,15 @@
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:generate": "npm run db:generate -w apps/api",
-    "db:push": "npm run db:push -w apps/api"
+    "db:push": "npm run db:push -w apps/api",
+    "qa:deploy": "tsx scripts/qa-deploy-flow.ts"
   },
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.15.6"
+    "@types/pg": "^8.15.6",
+    "tsx": "^4.19.2"
   }
 }

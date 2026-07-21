@@ -1,58 +1,106 @@
-# TechTeam Deploy OS — VPS Deploy Platform MVP
+# Hredoy Deploy OS
 
-Self-hosted Vercel-like deployment platform for one or more VPS servers.
+Hredoy Deploy OS is a self-hosted, Vercel-style deployment control plane for a VPS. A project is connected once, then every push to its production branch can trigger an isolated Docker build and a zero-downtime deployment through GitHub Actions.
 
-This package contains a production-oriented MVP scaffold:
+## What is implemented
 
-- Next.js dashboard UI
-- Fastify API control plane
-- Runner worker skeleton
-- PostgreSQL + Prisma schema
-- Redis/BullMQ queue integration points
-- GitHub deploy key + GitHub Actions trigger flow
-- `.env` upload/encrypted env manager design
-- PostgreSQL database provisioner
-- Domain/subdomain/wildcard DNS workflow
-- Popular DNS provider adapter structure
-- Custom DNS provider dry-run structure
-- Docker/Caddy infra templates
+- Next.js control panel with light and dark mode
+- Fastify control-plane API
+- PostgreSQL/Prisma state and encrypted secrets
+- Redis/BullMQ deployment queue
+- Real per-project Ed25519 GitHub deploy keys
+- Real per-project CI/CD tokens stored as hashes
+- GitHub Actions trigger workflow
+- Framework detection for Next.js, Vite, Node.js, static sites and custom Dockerfiles
+- Docker image build with BuildKit secrets
+- Optional PostgreSQL database provisioning and Prisma migration
+- Container health checks and captured failure logs
+- Nginx route switching with rollback
+- Optional Certbot SSL
+- Previous live container kept until the replacement is healthy
+- Project, deployment, domain, environment, database and log management
 
-## Important security rules
+## Deployment flow
 
-- Do not run uploaded project code directly on the host VPS.
-- Build/run user projects in isolated Docker containers.
-- Never store `.env`, deploy private key, or DNS provider API key as plain text.
-- Never expose VPS SSH private key in recommended Deploy OS mode.
-- Keep old deployment live until the new container passes health check.
-- Validate DNS ownership before routing any custom domain.
+```text
+GitHub push
+→ GitHub Actions calls Deploy OS API
+→ API validates repository, branch and project token
+→ deployment is queued in Redis
+→ runner locks the project to prevent concurrent route races
+→ exact commit is fetched and verified against the production branch
+→ encrypted environment is decrypted only into temporary 0600 files
+→ framework is detected and a Docker image is built
+→ optional database migration runs
+→ new container starts on a private host port
+→ health endpoint must return HTTP 2xx/3xx
+→ verified custom domain or default apps subdomain is switched in Nginx
+→ database state is committed as LIVE
+→ previous container is removed
+```
 
-## Fresh setup
+If a build, migration, container, health check, SSL or proxy step fails, the new container is removed and the previous live deployment remains available.
+
+## Project setup in the control panel
+
+1. Open **New Project**.
+2. Enter the GitHub repository, branch, optional monorepo root directory, runtime overrides, port and health path.
+3. Generate the repository deploy key.
+4. Add its public key in GitHub: **Settings → Deploy keys**. Keep write access disabled.
+5. Upload production environment variables if needed.
+6. Provision an optional PostgreSQL database if needed.
+7. Save the project and copy the one-time `DEPLOY_TOKEN`.
+8. Add repository secrets:
+   - `DEPLOY_API_URL=https://vps.techteamlead.com`
+   - `DEPLOY_TOKEN=<generated project token>`
+9. Create `.github/workflows/deploy.yml` from the generated workflow.
+10. Push to the configured production branch.
+11. Open the project dashboard to follow deployment logs and live status.
+
+## Local validation
 
 ```bash
 cd /path/to/techteam-deploy-os
-cp .env.example .env
 npm install
 npm run db:generate
-npm run db:push
-npm run dev
+npm run qa:deploy
+npm run typecheck
+npm run build
 ```
 
-## Local infra
+## VPS control-plane deployment
+
+The repository uses a self-hosted GitHub Actions runner on the VPS. The control-plane repository has its own deploy key configured only in its local `.git/config`; it does not depend on global SSH aliases and does not affect other projects.
 
 ```bash
-cd /path/to/techteam-deploy-os
-docker compose -f infra/docker-compose.yml up -d postgres redis caddy
+cd /var/www/techteam-deploy-os
+bash scripts/deploy-vps.sh
 ```
 
-## Recommended CI/CD mode
+The script validates required environment variables, synchronizes the repository, starts PostgreSQL/Redis, updates dependencies only when package metadata changes, synchronizes Prisma, runs typecheck/build, gracefully reloads PM2 services and verifies local and public health endpoints.
 
-GitHub Actions only triggers Deploy OS API. The VPS Runner pulls code and deploys.
+## Required VPS environment
 
-Required GitHub repository secrets:
+Copy `.env.example` to `.env` and replace all placeholder values. Important settings:
 
-```txt
-DEPLOY_API_URL=https://deploy.yourdomain.com
-DEPLOY_TOKEN=project-specific-token
-```
+- `DATABASE_URL`: Deploy OS control-plane database
+- `REDIS_URL`: BullMQ Redis connection
+- `DEPLOY_OS_ENCRYPTION_KEY`: base64-encoded 32-byte encryption key
+- `POSTGRES_ADMIN_URL`: PostgreSQL account allowed to create project databases and roles
+- `POSTGRES_PROJECT_HOST`: hostname project containers use to reach PostgreSQL
+- `RUNNER_DOCKER_NETWORK`: shared Docker network for apps and PostgreSQL
+- `DEPLOY_OS_APPS_DOMAIN`: wildcard apps base, such as `apps.example.com`
+- `RUNNER_PUBLIC_SCHEME`: use `http` until SSL is configured, then `https`
+- `RUNNER_AUTO_SSL`: enable only after DNS resolves and Certbot is installed
 
-Direct VPS SSH mode is included only as a legacy/backup idea. Prefer Deploy OS mode.
+See [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for the full server checklist.
+
+## Security model
+
+- Project private keys, environment values, database passwords and provider credentials are encrypted at rest.
+- Build environment is supplied through a JSON BuildKit secret and is never evaluated as shell code.
+- Temporary key/environment files use `0600` permissions and are removed after every job.
+- Project images run in Docker with CPU/memory limits and no host source execution.
+- Custom domains are routed only after DNS and ownership verification.
+- CI/CD tokens are shown once and only their SHA-256 hashes are stored.
+- Database/log administration is currently open because this installation was intentionally configured without an admin-token gate. Restrict the control-panel domain at Nginx, VPN or firewall level before exposing it publicly.

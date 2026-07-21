@@ -1,91 +1,88 @@
-# GitHub App and GitHub Actions setup
+# GitHub connection and GitHub Actions setup
 
-Hredoy Deploy OS supports two automatic deployment methods per project. Only one automatic method is active at a time, while **Deploy now** remains available in both modes.
+Hredoy Deploy OS keeps two repository connection methods. Only one automatic method is active per project, while **Deploy now** remains available in both modes.
 
-## Method A: GitHub App (recommended)
+## Method A: Connect GitHub — automatic push deployment
 
 This is the Vercel-like flow:
 
 ```text
 Connect GitHub
-→ install the GitHub App for selected repositories
-→ import a repository
-→ choose the production branch and root directory
-→ push code
-→ signed webhook queues an exact-commit deployment
-→ Docker build, health check, route switch and rollback protection
+→ GitHub signs in or uses the current session
+→ first use creates the managed Hredoy Deploy OS GitHub App automatically
+→ choose a personal account or organization
+→ grant all repositories or selected repositories
+→ return to Deploy OS
+→ select repository, branch and root directory
+→ every push to the production branch deploys automatically
 ```
 
-### Register the GitHub App once
+Open `/github` and press **Connect GitHub**. No App ID, PEM key or webhook secret needs to be copied into the VPS for the normal flow.
 
-Create a GitHub App under the GitHub account or organization that owns the deployment service.
+### First connection
 
-Use these URLs:
+When no managed GitHub App exists, Deploy OS starts GitHub's App manifest flow. GitHub displays the App registration screen under the signed-in account. After confirmation GitHub returns a one-time manifest code. Deploy OS exchanges it for the App ID, slug, PEM private key and webhook secret, then encrypts sensitive credentials with `DEPLOY_OS_ENCRYPTION_KEY` before storing them in PostgreSQL.
+
+The generated App uses:
 
 ```text
-Homepage URL: https://vps.techteamlead.com
-Setup URL: https://vps.techteamlead.com/github/setup
-Webhook URL: https://vps.techteamlead.com/api/github/webhook
+Homepage: DEPLOY_OS_PUBLIC_URL
+Setup URL: /github/setup
+Manifest callback: /github/manifest/callback
+Webhook URL: /api/github/webhook
+Repository contents: read-only
+Metadata: read-only
+Commit statuses: read and write
+Events: push, installation, installation_repositories
 ```
 
-Enable **Redirect on update** for the setup URL.
+After the App exists, later **Connect GitHub** clicks open its installation page directly. The user chooses a personal account or organization and grants all or selected repository access.
 
-Repository permissions:
+### Push deployment
+
+For a project using **Connect GitHub — automatic push deploy**:
 
 ```text
-Contents: Read-only
-Commit statuses: Read and write
-Metadata: Read-only (GitHub provides this automatically)
+git push to production branch
+→ signed GitHub webhook
+→ installation/repository/branch validation
+→ common deployment queue
+→ exact commit checkout with a short-lived installation token
+→ Docker build and health check
+→ route switch or rollback
+→ GitHub commit status update
 ```
 
-Subscribe to these events:
+There is no permanent personal access token, repository deploy key, GitHub Actions workflow or Actions secret in this mode.
 
-```text
-Push
-Installation
-Installation repositories
-```
+### Optional environment override
 
-Generate a private key for the App and choose a strong webhook secret. Store neither value in Git.
-
-### VPS environment
-
-Add these values to `/var/www/techteam-deploy-os/.env`:
+The managed manifest configuration is the default. An already registered external App can override it through VPS environment variables:
 
 ```env
 GITHUB_APP_ID=<numeric-app-id>
-GITHUB_APP_SLUG=<github-app-slug>
-GITHUB_APP_PRIVATE_KEY_BASE64=<base64-encoded-pem-private-key>
-GITHUB_APP_WEBHOOK_SECRET=<strong-random-webhook-secret>
+GITHUB_APP_SLUG=<app-slug>
+GITHUB_APP_CLIENT_ID=<optional-client-id>
+GITHUB_APP_CLIENT_SECRET=<optional-client-secret>
+GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
+GITHUB_APP_WEBHOOK_SECRET=<webhook-secret>
 ```
 
-The same `.env` is copied to the API and runner during control-plane deployment. The API uses the private key to synchronize installations and verify signed webhooks. The runner uses short-lived installation tokens to clone the exact repository and update the commit deployment status.
+When all required override values are present, Deploy OS uses the environment configuration instead of the encrypted managed record.
 
-### Connect repositories
+## Method B: Repository URL — GitHub Actions setup
 
-1. Open `/github`.
-2. Select **Connect GitHub**.
-3. Choose the GitHub account or organization.
-4. Grant access to all repositories or selected repositories.
-5. GitHub returns to `/github/setup`; Deploy OS synchronizes the installation.
-6. Select **Import a repository**.
-7. Choose the account, repository, production branch and optional monorepo root directory.
-8. Save the project and use **Deploy now**, or push to the selected branch.
-
-No repository deploy key, permanent personal access token, workflow file or GitHub Actions secret is required in GitHub App mode.
-
-## Method B: GitHub Actions
-
-This mode keeps CI/CD configuration in the client repository:
+Use this when the user does not connect a GitHub account or wants repository-managed CI/CD:
 
 ```text
-Create project
-→ generate read-only repository deploy key
+Enter GitHub repository URL
+→ save project in GitHub Actions mode
+→ generate read-only deploy key
 → generate one-time DEPLOY_TOKEN
-→ add GitHub repository secrets
-→ copy generated workflow
+→ copy DEPLOY_API_URL and DEPLOY_TOKEN into GitHub Actions secrets
+→ copy or download deploy.yml
 → push code
-→ workflow queues deployment and waits until LIVE or FAILED
+→ GitHub Actions queues deployment and waits for LIVE or FAILED
 ```
 
 Repository secrets:
@@ -95,33 +92,33 @@ DEPLOY_API_URL=https://vps.techteamlead.com
 DEPLOY_TOKEN=<one-time-project-token>
 ```
 
-Add the generated public key in GitHub repository **Settings → Deploy keys** with write access disabled. Copy the generated workflow to `.github/workflows/deploy.yml`.
+Add the generated public key in **GitHub repository → Settings → Deploy keys** with write access disabled. Put the generated file at `.github/workflows/deploy.yml`.
 
-The workflow validates the project slug, repository, branch and token, then polls the deployment record. The GitHub job succeeds only when the deployment becomes `LIVE` and fails when it becomes `FAILED` or exceeds the deployment timeout.
+This mode does not receive the direct GitHub App push webhook. Automatic deployment begins only after the generated GitHub Actions setup is added manually to the repository.
 
 ## Switching methods
 
-Open the project dashboard and choose the active method:
+The project dashboard can switch between:
 
 ```text
-GitHub App — Recommended
-GitHub Actions
+Connect GitHub — automatic push deploy
+Repository URL — GitHub Actions setup
 ```
 
-Switching methods does not delete the other method's deploy key or token. It only controls which automatic trigger is accepted. This prevents the same push from creating duplicate deployments.
+Selecting connected GitHub first opens account/repository/branch selection. The project does not leave its current Actions mode until **Use selected GitHub App repository** succeeds. Switching back to Actions keeps previous App records but accepts automatic requests only from the generated workflow.
 
 ## Manual deployment
 
 Manual deployment is always available:
 
-- Leave the commit empty to deploy the latest commit from the production branch.
-- Enter an exact commit SHA to deploy that commit.
-- The runner verifies that the requested commit belongs to the configured production branch.
+- Empty commit field deploys the latest production-branch commit.
+- An exact commit SHA deploys that commit after repository and branch verification.
 
-## Webhook delivery safety
+## Safety
 
-- The API verifies `X-Hub-Signature-256` against the raw request body.
+- Webhooks are verified with `X-Hub-Signature-256` against the raw body.
 - `X-GitHub-Delivery` is recorded for idempotency.
-- Pushes are accepted only for an active GitHub App project, the selected installation, repository and production branch.
-- Installation removal disables automatic GitHub App deployment for affected projects.
-- Repository installation tokens are short-lived and are not stored in PostgreSQL.
+- Manifest callbacks use a signed, expiring state value.
+- Managed PEM keys, webhook secrets and client secrets are encrypted before database storage.
+- Installation tokens are short-lived and are never stored in PostgreSQL.
+- Repository access is limited to the repositories granted during GitHub App installation.

@@ -15,6 +15,7 @@ type EntityKey =
   | 'deploymentLogs'
   | 'domains'
   | 'dnsProviders'
+  | 'githubAppConfiguration'
   | 'githubInstallations'
   | 'githubRepositories'
   | 'githubWebhookDeliveries'

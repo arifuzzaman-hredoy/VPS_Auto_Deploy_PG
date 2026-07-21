@@ -80,25 +80,13 @@ bash scripts/deploy-vps.sh
 
 The runner service should remain `active (running)` and must use repository labels matching `.github/workflows/deploy-vps.yml`.
 
-## 7. Configure the GitHub App (recommended)
+## 7. Connect GitHub (recommended)
 
-Register one GitHub App, then add these values to `.env`:
+Open `https://vps.techteamlead.com/github` and press **Connect GitHub**. On first use, Deploy OS starts GitHub’s App manifest flow, GitHub asks for confirmation, and Deploy OS stores the returned managed App credentials encrypted in PostgreSQL. Then choose the account or organization and grant all or selected repositories.
 
-```env
-GITHUB_APP_ID=<numeric-app-id>
-GITHUB_APP_SLUG=<app-slug>
-GITHUB_APP_PRIVATE_KEY_BASE64=<base64-pem>
-GITHUB_APP_WEBHOOK_SECRET=<random-secret>
-```
+No manual `GITHUB_APP_*` VPS variables are required for the normal managed flow. Those variables remain available as an optional external-App override; see [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md).
 
-GitHub App URLs:
-
-```text
-Setup URL: https://vps.techteamlead.com/github/setup
-Webhook URL: https://vps.techteamlead.com/api/github/webhook
-```
-
-Grant repository **Contents: read-only** and **Commit statuses: read and write**. Subscribe to **Push**, **Installation** and **Installation repositories** events. Full instructions are in [GITHUB_APP_SETUP.md](GITHUB_APP_SETUP.md).
+After returning to Deploy OS, import a repository, choose its production branch and root directory, and enable automatic deployment. Every push to that branch is delivered through the signed GitHub App webhook.
 
 ## 8. Creating a client project
 

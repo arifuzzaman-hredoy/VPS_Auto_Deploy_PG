@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { GitHubConnectButton } from './GitHubConnectButton';
 
 type DeploymentMethod = 'GITHUB_APP' | 'GITHUB_ACTIONS';
 
@@ -51,6 +52,7 @@ export function ProjectCiCdPanel({
   const [selectedInstallation, setSelectedInstallation] = useState(githubInstallationId || '');
   const [selectedRepository, setSelectedRepository] = useState(githubRepositoryId || '');
   const [selectedBranch, setSelectedBranch] = useState(branch);
+  const [methodView, setMethodView] = useState<DeploymentMethod>(deploymentMethod);
 
   const yaml = useMemo(() => `name: Deploy with Hredoy Deploy OS
 
@@ -123,7 +125,9 @@ jobs:
     if (response.ok && Array.isArray(payload)) setKeys(payload as DeployKey[]);
   }, [projectId]);
 
-  useEffect(() => { if (deploymentMethod === 'GITHUB_ACTIONS') void loadKeys(); }, [deploymentMethod, loadKeys]);
+  useEffect(() => { if (methodView === 'GITHUB_ACTIONS') void loadKeys(); }, [methodView, loadKeys]);
+
+  useEffect(() => { setMethodView(deploymentMethod); }, [deploymentMethod]);
 
   useEffect(() => {
     void (async () => {
@@ -163,6 +167,18 @@ jobs:
     window.setTimeout(() => setCopied(''), 1500);
   };
 
+  const downloadWorkflow = () => {
+    const blob = new Blob([yaml], { type: 'text/yaml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'deploy.yml';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const updateAutomation = async (body: Record<string, unknown>) => {
     setWorking(true);
     setMessage('');
@@ -174,6 +190,9 @@ jobs:
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || 'Project automation could not be updated.');
+      if (body.deploymentMethod === 'GITHUB_APP' || body.deploymentMethod === 'GITHUB_ACTIONS') {
+        setMethodView(body.deploymentMethod);
+      }
       setMessage('Project deployment method updated. Only one automatic mode is active at a time.');
       onUpdated?.();
     } catch (error) {
@@ -265,37 +284,43 @@ jobs:
             <strong>Active automatic deployment method</strong>
             <select
               className="input"
-              value={deploymentMethod}
+              value={methodView}
               disabled={working}
               onChange={(event) => {
                 const method = event.target.value as DeploymentMethod;
-                if (method === 'GITHUB_APP' && !githubInstallationId) {
-                  setMessage('Select a connected GitHub App repository below, then activate it.');
+                setMethodView(method);
+                if (method === 'GITHUB_APP') {
+                  if (githubInstallationId && githubRepositoryId) {
+                    void updateAutomation({ deploymentMethod: method });
+                  } else {
+                    setMessage('Connect GitHub and select an allowed repository below. The project stays on GitHub Actions until you activate the selected repository.');
+                  }
                   return;
                 }
                 void updateAutomation({ deploymentMethod: method });
               }}
             >
-              <option value="GITHUB_APP">GitHub App — Recommended</option>
-              <option value="GITHUB_ACTIONS">GitHub Actions</option>
+              <option value="GITHUB_APP">Connect GitHub — automatic push deploy</option>
+              <option value="GITHUB_ACTIONS">Repository URL — GitHub Actions setup</option>
             </select>
             <label className="check-row done">
               <input
                 type="checkbox"
-                checked={autoDeployEnabled}
-                disabled={working}
+                checked={methodView === deploymentMethod ? autoDeployEnabled : false}
+                disabled={working || methodView !== deploymentMethod}
                 onChange={(event) => void updateAutomation({ autoDeployEnabled: event.target.checked })}
               />
-              <span>Automatically deploy pushes to {branch}</span>
+              <span>{methodView === 'GITHUB_APP' ? `Deploy every push to ${branch} through the connected GitHub webhook` : `Accept deploys from the generated GitHub Actions workflow for ${branch}`}</span>
             </label>
           </div>
         </div>
 
-        {deploymentMethod === 'GITHUB_APP' ? (
+        {methodView === 'GITHUB_APP' ? (
           <div className="details-box">
             <div className="details-content stack">
-              <strong>GitHub App webhook mode</strong>
-              <p className="panel-subtitle">No workflow file, repository secret or permanent deploy key is required. Deploy OS uses short-lived installation tokens.</p>
+              <strong>Connected GitHub automatic mode</strong>
+              <p className="panel-subtitle">Select a connected repository once. Every push to the production branch deploys automatically with no workflow file, repository secret or permanent deploy key.</p>
+              {installations.length === 0 ? <GitHubConnectButton label="Connect GitHub" className="btn" onError={setMessage} /> : null}
               <div className="grid grid-2">
                 <select className="input" value={selectedInstallation} onChange={(event) => { setSelectedInstallation(event.target.value); setSelectedRepository(''); }}>
                   <option value="">Select connected account</option>
@@ -332,7 +357,7 @@ jobs:
                 <Review label="Production branch" value={branch} />
                 <Review label="Push webhook" value={autoDeployEnabled ? 'Enabled' : 'Disabled'} />
               </div>
-              <a className="btn secondary" href="/github">Manage GitHub connection</a>
+              <div className="inline-actions"><a className="btn secondary" href="/github">Manage GitHub connection</a>{installations.length > 0 ? <GitHubConnectButton label="Connect another account" className="btn secondary" onError={setMessage} /> : null}</div>
             </div>
           </div>
         ) : (
@@ -352,10 +377,12 @@ jobs:
             <div className="details-box">
               <div className="details-content stack">
                 <strong>2. GitHub Actions secrets</strong>
+                <p className="panel-subtitle">Add both values in GitHub → Settings → Secrets and variables → Actions.</p>
                 <div className="review-list">
                   <Review label="DEPLOY_API_URL" value="https://vps.techteamlead.com" />
                   <Review label="DEPLOY_TOKEN" value={token ? 'Generated now' : deployTokenConfigured ? 'Configured' : 'Missing'} />
                 </div>
+                <button className="btn secondary" type="button" onClick={() => copy('api-url', 'https://vps.techteamlead.com')}>{copied === 'api-url' ? 'Copied' : 'Copy DEPLOY_API_URL'}</button>
                 {token ? <><pre className="code">{token}</pre><button className="btn secondary" type="button" onClick={() => copy('token', token)}>{copied === 'token' ? 'Copied' : 'Copy DEPLOY_TOKEN'}</button></> : null}
                 <button className="btn secondary" type="button" disabled={working} onClick={rotateToken}>{deployTokenConfigured ? 'Rotate CI/CD token' : 'Generate CI/CD token'}</button>
               </div>
@@ -365,7 +392,10 @@ jobs:
               <summary>3. Copy .github/workflows/deploy.yml</summary>
               <div className="details-content stack">
                 <pre className="code tall">{yaml}</pre>
-                <button className="btn secondary" type="button" onClick={() => copy('yaml', yaml)}>{copied === 'yaml' ? 'Copied' : 'Copy workflow YAML'}</button>
+                <div className="inline-actions">
+                  <button className="btn secondary" type="button" onClick={() => copy('yaml', yaml)}>{copied === 'yaml' ? 'Copied' : 'Copy workflow YAML'}</button>
+                  <button className="btn secondary" type="button" onClick={downloadWorkflow}>Download deploy.yml</button>
+                </div>
               </div>
             </details>
           </>

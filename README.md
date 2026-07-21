@@ -42,12 +42,13 @@ Only one automatic method is active per project, preventing duplicate deployment
 
 ### GitHub App — recommended
 
-1. Register the GitHub App once and configure its setup URL, signed webhook and minimum repository permissions.
-2. Open **GitHub** in Deploy OS and install the App for selected repositories.
-3. Import a repository, select its production branch and optional monorepo root.
-4. Push to the selected branch. The signed webhook queues the exact commit automatically.
+1. Open **GitHub** in Deploy OS and press **Connect GitHub**.
+2. On first use, GitHub confirms creation of this server’s managed App; Deploy OS stores its credentials encrypted.
+3. Choose a personal account or organization and grant all or selected repositories.
+4. Import a repository, select its production branch and optional monorepo root.
+5. Push to the selected branch. The signed webhook queues the exact commit automatically.
 
-GitHub App mode uses short-lived installation tokens. It does not require a repository deploy key, personal access token, workflow file or GitHub Actions secret.
+GitHub App mode uses short-lived installation tokens. Normal setup requires no VPS App credentials, repository deploy key, personal access token, workflow file or GitHub Actions secret. Environment App credentials remain available only as an optional override.
 
 ### GitHub Actions
 
@@ -57,7 +58,7 @@ GitHub App mode uses short-lived installation tokens. It does not require a repo
 4. Copy the generated `.github/workflows/deploy.yml`.
 5. Push to the production branch. The workflow queues the deployment and waits until it becomes `LIVE` or `FAILED`.
 
-See [docs/GITHUB_APP_SETUP.md](docs/GITHUB_APP_SETUP.md) for the exact GitHub App registration and both setup flows.
+See [docs/GITHUB_APP_SETUP.md](docs/GITHUB_APP_SETUP.md) for the one-click GitHub connection and URL-only GitHub Actions setup flows.
 
 ## Local validation
 

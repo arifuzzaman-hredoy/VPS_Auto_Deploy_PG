@@ -1,26 +1,37 @@
 import { createSign } from 'node:crypto';
+import { decryptSecret } from './crypto.js';
+import { prisma } from './prisma.js';
 
-function getPrivateKey(): string {
+type GitHubAppCredentials = { appId: string; privateKey: string };
+
+function environmentCredentials(): GitHubAppCredentials | null {
+  const appId = process.env.GITHUB_APP_ID?.trim();
   const base64 = process.env.GITHUB_APP_PRIVATE_KEY_BASE64?.trim();
-  if (base64) return Buffer.from(base64, 'base64').toString('utf8');
   const raw = process.env.GITHUB_APP_PRIVATE_KEY?.trim();
-  if (!raw) throw new Error('GitHub App private key is not configured on the runner.');
-  return raw.replace(/\\n/g, '\n');
+  const privateKey = base64 ? Buffer.from(base64, 'base64').toString('utf8') : raw?.replace(/\\n/g, '\n');
+  return appId && privateKey ? { appId, privateKey } : null;
+}
+
+async function getCredentials(): Promise<GitHubAppCredentials> {
+  const environment = environmentCredentials();
+  if (environment) return environment;
+  const managed = await prisma.gitHubAppConfiguration.findUnique({ where: { id: 'primary' } });
+  if (!managed) throw new Error('GitHub App is not configured on the runner. Connect GitHub from Deploy OS first.');
+  return { appId: managed.appId, privateKey: decryptSecret(managed.encryptedPrivateKey) };
 }
 
 function encode(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
-function createAppJwt(): string {
-  const appId = process.env.GITHUB_APP_ID?.trim();
-  if (!appId) throw new Error('GITHUB_APP_ID is not configured on the runner.');
+async function createAppJwt(): Promise<string> {
+  const credentials = await getCredentials();
   const now = Math.floor(Date.now() / 1000);
-  const input = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ iat: now - 60, exp: now + 540, iss: appId })}`;
+  const input = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ iat: now - 60, exp: now + 540, iss: credentials.appId })}`;
   const signer = createSign('RSA-SHA256');
   signer.update(input);
   signer.end();
-  return `${input}.${signer.sign(getPrivateKey()).toString('base64url')}`;
+  return `${input}.${signer.sign(credentials.privateKey).toString('base64url')}`;
 }
 
 async function createInstallationToken(installationId: string): Promise<string> {
@@ -28,7 +39,7 @@ async function createInstallationToken(installationId: string): Promise<string> 
     method: 'POST',
     headers: {
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${createAppJwt()}`,
+      Authorization: `Bearer ${await createAppJwt()}`,
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'Hredoy-Deploy-OS-Runner',
     },

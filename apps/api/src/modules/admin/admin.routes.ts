@@ -15,6 +15,7 @@ const entityKeys = [
   'deploymentLogs',
   'domains',
   'dnsProviders',
+  'githubAppConfiguration',
   'githubInstallations',
   'githubRepositories',
   'githubWebhookDeliveries',
@@ -91,8 +92,8 @@ const categories = [
   {
     key: 'github',
     label: 'GitHub',
-    description: 'GitHub App installations, repositories and webhook deliveries',
-    entities: ['githubInstallations', 'githubRepositories', 'githubWebhookDeliveries'] as EntityKey[],
+    description: 'Managed GitHub App, installations, repositories and webhook deliveries',
+    entities: ['githubAppConfiguration', 'githubInstallations', 'githubRepositories', 'githubWebhookDeliveries'] as EntityKey[],
   },
   {
     key: 'system',
@@ -113,6 +114,7 @@ const entityLabels: Record<EntityKey, string> = {
   deploymentLogs: 'Deployment logs',
   domains: 'Domains',
   dnsProviders: 'DNS providers',
+  githubAppConfiguration: 'GitHub App configuration',
   githubInstallations: 'GitHub installations',
   githubRepositories: 'GitHub repositories',
   githubWebhookDeliveries: 'GitHub webhook deliveries',
@@ -380,6 +382,26 @@ async function loadRecords(entity: EntityKey): Promise<DatabaseRecord[]> {
         fields: [field('Allowed zone', row.allowedZone), field('Credential', 'Encrypted and hidden'), field('Updated', row.updatedAt)],
       }));
     }
+    case 'githubAppConfiguration': {
+      const rows = await prisma.gitHubAppConfiguration.findMany({ orderBy: { updatedAt: 'desc' }, take: 10 });
+      return rows.map((row: any) => ({
+        id: row.id,
+        entity,
+        title: row.appSlug,
+        subtitle: `GitHub App ${row.appId}`,
+        status: 'Configured',
+        createdAt: row.createdAt.toISOString(),
+        fields: [
+          field('Owner', row.ownerLogin),
+          field('GitHub URL', row.htmlUrl),
+          field('Client ID', row.clientId),
+          field('Private key', 'Encrypted and hidden'),
+          field('Webhook secret', 'Encrypted and hidden'),
+          field('Client secret', row.encryptedClientSecret ? 'Encrypted and hidden' : 'Not stored'),
+          field('Updated', row.updatedAt),
+        ],
+      }));
+    }
     case 'githubInstallations': {
       const rows = await prisma.gitHubInstallation.findMany({
         orderBy: { updatedAt: 'desc' },
@@ -577,6 +599,14 @@ async function deleteRecord(entity: EntityKey, id: string, dropPhysical: boolean
       const row = await prisma.dnsProviderCredential.delete({ where: { id } });
       return { deleted: row.providerName };
     }
+    case 'githubAppConfiguration': {
+      const row = await prisma.gitHubAppConfiguration.delete({ where: { id } });
+      await prisma.project.updateMany({
+        where: { deploymentMethod: 'GITHUB_APP' },
+        data: { autoDeployEnabled: false, status: 'GITHUB_APP_DISCONNECTED' },
+      });
+      return { deleted: row.appSlug, note: 'Managed GitHub App configuration removed. Existing installations remain as history, but automatic App deployment is disabled until GitHub is connected again.' };
+    }
     case 'githubInstallations': {
       const row = await prisma.gitHubInstallation.delete({ where: { id } });
       await prisma.project.updateMany({
@@ -617,6 +647,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       deploymentLogs,
       domains,
       dnsProviders,
+      githubAppConfiguration,
       githubInstallations,
       githubRepositories,
       githubWebhookDeliveries,
@@ -633,6 +664,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       prisma.deploymentLog.count(),
       prisma.domain.count(),
       prisma.dnsProviderCredential.count(),
+      prisma.gitHubAppConfiguration.count(),
       prisma.gitHubInstallation.count(),
       prisma.gitHubRepository.count(),
       prisma.gitHubWebhookDelivery.count(),
@@ -651,6 +683,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       deploymentLogs,
       domains,
       dnsProviders,
+      githubAppConfiguration,
       githubInstallations,
       githubRepositories,
       githubWebhookDeliveries,

@@ -27,7 +27,10 @@ export function GitHubSetupClient() {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.message || 'GitHub App installation could not be synchronized.');
         setStatus('success');
-        setMessage(`Connected ${payload.accountLogin || 'GitHub'} with ${payload.repositories?.length || 0} accessible repositories.`);
+        setMessage(`Connected ${payload.accountLogin || 'GitHub'} with ${payload.repositories?.length || 0} accessible repositories. Opening repository import…`);
+        window.setTimeout(() => {
+          window.location.assign(`/projects/new?installationId=${encodeURIComponent(installationId)}`);
+        }, 900);
       } catch (error) {
         setStatus('error');
         setMessage(error instanceof Error ? error.message : 'GitHub App installation could not be synchronized.');

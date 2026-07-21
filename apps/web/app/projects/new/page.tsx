@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "../../components/AppShell";
+import { GitHubConnectButton } from "../../components/GitHubConnectButton";
 
 type DeploymentMethod = "GITHUB_APP" | "GITHUB_ACTIONS";
 
@@ -45,7 +46,7 @@ type DeployKeyStatus = {
 };
 
 const initialForm: ProjectForm = {
-  deploymentMethod: "GITHUB_APP",
+  deploymentMethod: "GITHUB_ACTIONS",
   autoDeployEnabled: true,
   githubInstallationId: "",
   githubRepositoryId: "",
@@ -140,7 +141,11 @@ export default function NewProjectPage() {
         const requested = new URLSearchParams(window.location.search).get("installationId") || "";
         const initialInstallation = requested || installations[0]?.externalId || "";
         if (initialInstallation) {
-          setForm((current) => ({ ...current, githubInstallationId: initialInstallation }));
+          setForm((current) => ({
+            ...current,
+            deploymentMethod: "GITHUB_APP",
+            githubInstallationId: initialInstallation,
+          }));
         }
       } catch (error) {
         setGitHubMessage(error instanceof Error ? error.message : "GitHub installations could not be loaded.");
@@ -306,6 +311,18 @@ jobs:
     } catch {
       setSaveStatus({ type: "error", message: "Clipboard permission blocked by browser." });
     }
+  };
+
+  const downloadWorkflow = () => {
+    const blob = new Blob([yaml], { type: "text/yaml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "deploy.yml";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleEnvFile = async (file?: File) => {
@@ -600,15 +617,21 @@ jobs:
             </div>
 
             <div className="stack" style={{ marginBottom: 18 }}>
-              <Field label="Deployment method" hint="GitHub App is the Vercel-like option. GitHub Actions keeps CI/CD inside the repository.">
+              <Field label="Repository connection" hint="Connected GitHub gives Vercel-like push deploys. URL-only repositories use generated GitHub Actions setup.">
                 <select className="input" value={form.deploymentMethod} onChange={(event) => {
                   const method = event.target.value as DeploymentMethod;
-                  setForm((current) => ({ ...current, deploymentMethod: method }));
+                  setForm((current) => ({
+                    ...current,
+                    deploymentMethod: method,
+                    githubInstallationId: method === "GITHUB_APP" ? (current.githubInstallationId || githubInstallations[0]?.externalId || "") : "",
+                    githubRepositoryId: method === "GITHUB_APP" ? current.githubRepositoryId : "",
+                    repoUrl: method === "GITHUB_APP" ? current.repoUrl : current.repoUrl,
+                  }));
                   setDeployKeyStatus({ type: "idle", message: "", publicKey: "", fingerprint: "" });
                   setDeployToken("");
                 }}>
-                  <option value="GITHUB_APP">GitHub App — Recommended</option>
-                  <option value="GITHUB_ACTIONS">GitHub Actions</option>
+                  <option value="GITHUB_APP">Connect GitHub — automatic push deploy</option>
+                  <option value="GITHUB_ACTIONS">Repository URL — GitHub Actions setup</option>
                 </select>
               </Field>
               {form.deploymentMethod === "GITHUB_APP" ? (
@@ -638,10 +661,10 @@ jobs:
                 </div>
               ) : null}
               {githubMessage ? <div className="notice">{githubMessage}</div> : null}
-              {form.deploymentMethod === "GITHUB_APP" && githubInstallations.length === 0 ? <a className="btn secondary" href="/github">Connect GitHub App</a> : null}
+              {form.deploymentMethod === "GITHUB_APP" && githubInstallations.length === 0 ? <GitHubConnectButton label="Connect GitHub" className="btn" onError={setGitHubMessage} /> : null}
               <label className="check-row done">
                 <input type="checkbox" checked={form.autoDeployEnabled} onChange={(event) => setForm((current) => ({ ...current, autoDeployEnabled: event.target.checked }))} />
-                <span>Automatically deploy pushes to the production branch</span>
+                <span>{form.deploymentMethod === "GITHUB_APP" ? "Deploy every production-branch push through the connected GitHub webhook" : "Accept production deploys from the generated GitHub Actions workflow"}</span>
               </label>
             </div>
 
@@ -652,7 +675,7 @@ jobs:
               <Field label="Project slug" hint="Used internally in URLs and deployment names">
                 <input className="input" value={form.slug} onChange={(event) => updateForm("slug", slugify(event.target.value))} placeholder="school-erp" />
               </Field>
-              <Field label="GitHub repository URL" hint={form.deploymentMethod === "GITHUB_APP" ? "Filled from the selected GitHub App repository" : "Public or private repository"} full>
+              <Field label="GitHub repository URL" hint={form.deploymentMethod === "GITHUB_APP" ? "Filled automatically from the connected GitHub repository" : "Paste the GitHub URL. Direct webhook deploy is unavailable until GitHub is connected."} full>
                 <input className="input" value={form.repoUrl} readOnly={form.deploymentMethod === "GITHUB_APP"} onChange={(event) => updateForm("repoUrl", event.target.value)} placeholder="https://github.com/owner/repository.git" />
               </Field>
               <Field label="Default branch" hint="The branch that triggers production deploys">
@@ -821,19 +844,50 @@ jobs:
                   <p className="panel-subtitle">Use signed GitHub App webhooks or repository-managed GitHub Actions.</p>
                 </div>
               </div>
-              {form.deploymentMethod === "GITHUB_ACTIONS" ? <button className="btn secondary" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy YAML"}</button> : <span className="badge">No workflow file needed</span>}
+              {form.deploymentMethod === "GITHUB_ACTIONS" ? (
+                <div className="inline-actions">
+                  <button className="btn secondary" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy YAML"}</button>
+                  <button className="btn secondary" type="button" onClick={downloadWorkflow}>Download deploy.yml</button>
+                </div>
+              ) : <span className="badge">No workflow file needed</span>}
             </div>
 
             {form.deploymentMethod === "GITHUB_ACTIONS" ? (
               <>
-            <details className="details-box">
-              <summary>View generated workflow YAML</summary>
-              <div className="details-content"><pre className="code tall">{yaml}</pre></div>
-            </details>
+            <div className="stack">
+              <div className="notice"><strong>URL-only mode:</strong> Deploy OS generates every required item here. Add them manually in GitHub, then each push will run the workflow and deploy. This repository does not receive direct GitHub webhook deploys.</div>
 
-            <div className="review-list" style={{ marginTop: 16 }}>
-              <ReviewRow label="DEPLOY_API_URL" value="https://vps.techteamlead.com" />
-              <ReviewRow label="DEPLOY_TOKEN" value={deployToken || "Save project to generate"} />
+              <div className="details-box">
+                <div className="details-content stack">
+                  <strong>1. Add repository deploy key</strong>
+                  <p className="panel-subtitle">Copy the public key from Runtime and repository access, then add it in GitHub → Settings → Deploy keys with write access disabled.</p>
+                </div>
+              </div>
+
+              <div className="details-box">
+                <div className="details-content stack">
+                  <strong>2. Add GitHub Actions secrets</strong>
+                  <div className="review-list">
+                    <ReviewRow label="DEPLOY_API_URL" value="https://vps.techteamlead.com" />
+                    <ReviewRow label="DEPLOY_TOKEN" value={deployToken || "Save project to generate"} />
+                  </div>
+                  <div className="inline-actions">
+                    <button className="btn secondary" type="button" onClick={() => copyText("api-url", "https://vps.techteamlead.com")}>{copiedTarget === "api-url" ? "Copied" : "Copy DEPLOY_API_URL"}</button>
+                    {deployToken ? <button className="btn secondary" type="button" onClick={() => copyText("token", deployToken)}>{copiedTarget === "token" ? "Copied" : "Copy DEPLOY_TOKEN"}</button> : null}
+                  </div>
+                </div>
+              </div>
+
+              <details className="details-box">
+                <summary>3. Add .github/workflows/deploy.yml</summary>
+                <div className="details-content stack">
+                  <pre className="code tall">{yaml}</pre>
+                  <div className="inline-actions">
+                    <button className="btn secondary" type="button" onClick={() => copyText("yaml", yaml)}>{copiedTarget === "yaml" ? "Copied" : "Copy workflow YAML"}</button>
+                    <button className="btn secondary" type="button" onClick={downloadWorkflow}>Download deploy.yml</button>
+                  </div>
+                </div>
+              </details>
             </div>
 
             {deployToken ? (
@@ -841,9 +895,6 @@ jobs:
                 <div className="toast success">{deployTokenMessage || "CI/CD token generated. Copy it now; it cannot be displayed again after refresh."}</div>
                 <pre className="code" style={{ overflowWrap: "anywhere", wordBreak: "break-all" }}>{deployToken}</pre>
                 <div className="inline-actions">
-                  <button className="btn secondary" type="button" onClick={() => copyText("token", deployToken)}>
-                    {copiedTarget === "token" ? "Copied" : "Copy DEPLOY_TOKEN"}
-                  </button>
                   <button className="btn secondary" type="button" onClick={async () => {
                     try {
                       const resolvedProjectId = await ensureProject();
@@ -861,7 +912,7 @@ jobs:
               </>
             ) : (
               <div className="stack">
-                <div className="notice"><strong>Vercel-like mode:</strong> pushes arrive through the signed GitHub App webhook and enter the same deployment queue automatically.</div>
+                <div className="notice"><strong>Connected GitHub mode:</strong> after this project is saved, pushes to the production branch arrive through the signed GitHub App webhook and deploy automatically. No deploy key, GitHub secret or workflow file is required.</div>
                 <div className="review-list">
                   <ReviewRow label="Repository" value={form.repoUrl || "Select a repository"} />
                   <ReviewRow label="Production branch" value={form.branch || "main"} />

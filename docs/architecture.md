@@ -5,9 +5,9 @@
 | Component | Responsibility |
 |---|---|
 | Web (`apps/web`) | GitHub connection, repository import, project setup, CI/CD instructions, environments, domains, deployments, database records and logs |
-| API (`apps/api`) | GitHub App JWT/token exchange, signed webhook verification, project/token validation, encrypted state, queue writes, domain verification and database provisioning |
+| API (`apps/api`) | One-click GitHub App manifest registration, encrypted App credentials, JWT/token exchange, signed webhook verification, project/token validation, queue writes, domain verification and database provisioning |
 | Runner (`apps/runner`) | Authenticated Git checkout, framework detection, image build, migration, container lifecycle, health checks and proxy switching |
-| PostgreSQL | Control-plane, GitHub installation/repository/delivery records and provisioned project databases |
+| PostgreSQL | Control-plane, encrypted managed GitHub App configuration, installation/repository/delivery records and provisioned project databases |
 | Redis/BullMQ | Durable common deployment queue for GitHub App, GitHub Actions and manual triggers |
 | Docker | Isolated build/runtime boundary for client applications |
 | Nginx | Public hostname to healthy-container routing |
@@ -45,15 +45,18 @@ A previous `LIVE` deployment becomes `SUPERSEDED` only after the replacement is 
 
 ## GitHub App flow
 
-1. GitHub redirects an App installation to `/github/setup?installation_id=...`.
-2. The API creates an RS256 GitHub App JWT and exchanges it for a short-lived installation access token.
-3. Allowed repositories are synchronized into `GitHubInstallation` and `GitHubRepository` records.
-4. GitHub sends push/installation events to `/api/github/webhook`.
-5. The API verifies `X-Hub-Signature-256` against the untouched raw payload.
-6. `X-GitHub-Delivery` is recorded in `GitHubWebhookDelivery` to make redelivery idempotent.
-7. Repository, installation, branch and active project method are matched before queueing.
-8. The runner requests a fresh installation token, checks out the exact commit and removes the authenticated remote URL after checkout.
-9. Pending/success/failure commit status is published when the App has commit-status permission.
+1. `/api/github/connect-flow` returns either the existing App installation URL or a signed, expiring GitHub App manifest registration request.
+2. On the first connection GitHub returns a one-time manifest code to `/github/manifest/callback`; the API exchanges it for App credentials.
+3. PEM private key, webhook secret and optional client secret are encrypted into the singleton `GitHubAppConfiguration` record. Complete environment credentials can override the managed record.
+4. GitHub redirects an App installation to `/github/setup?installation_id=...`.
+5. The API creates an RS256 GitHub App JWT and exchanges it for a short-lived installation access token.
+6. Allowed repositories are synchronized into `GitHubInstallation` and `GitHubRepository` records.
+7. GitHub sends push/installation events to `/api/github/webhook`.
+8. The API resolves the managed or environment webhook secret and verifies `X-Hub-Signature-256` against the untouched raw payload.
+9. `X-GitHub-Delivery` is recorded in `GitHubWebhookDelivery` to make redelivery idempotent.
+10. Repository, installation, branch and active project method are matched before queueing.
+11. The runner resolves the same managed or environment App credentials, requests a fresh installation token, checks out the exact commit and removes the authenticated remote URL after checkout.
+12. Pending/success/failure commit status is published when the App has commit-status permission.
 
 ## GitHub Actions flow
 
@@ -72,13 +75,14 @@ A previous `LIVE` deployment becomes `SUPERSEDED` only after the replacement is 
 
 ## Secret lifecycle
 
-1. API encrypts long-lived project values with `DEPLOY_OS_ENCRYPTION_KEY`.
-2. GitHub App installation tokens are short-lived and are never stored in PostgreSQL.
-3. Runner decrypts project values only inside the project secret directory.
-4. Runtime values are written to a temporary Docker env file.
-5. Build values are written as JSON and mounted as a BuildKit secret.
-6. Generated Dockerfiles parse JSON without shell-evaluating secret values.
-7. All temporary files are removed in a `finally` block.
+1. API encrypts long-lived project values and managed GitHub App secrets with `DEPLOY_OS_ENCRYPTION_KEY`.
+2. GitHub App manifest state is signed and expires; the one-time conversion code is never stored.
+3. GitHub App installation tokens are short-lived and are never stored in PostgreSQL.
+4. Runner decrypts project values only inside the project secret directory.
+5. Runtime values are written to a temporary Docker env file.
+6. Build values are written as JSON and mounted as a BuildKit secret.
+7. Generated Dockerfiles parse JSON without shell-evaluating secret values.
+8. All temporary files are removed in a `finally` block.
 
 ## Routing and rollback
 

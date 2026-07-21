@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { AppShell } from '../components/AppShell';
+import { GitHubConnectButton } from '../components/GitHubConnectButton';
 
 type GitHubStatus = {
   configured: boolean;
@@ -10,6 +11,9 @@ type GitHubStatus = {
   webhookUrl: string;
   missing: string[];
   connectedInstallations: number;
+  source: 'environment' | 'managed' | 'missing';
+  ownerLogin: string | null;
+  htmlUrl: string | null;
 };
 
 type Installation = {
@@ -64,8 +68,8 @@ export default function GitHubPage() {
     <AppShell
       active="github"
       title="GitHub connections"
-      description="Install the Hredoy Deploy OS GitHub App for Vercel-like repository import, while keeping GitHub Actions available for advanced CI/CD."
-      actions={status?.installUrl ? <a className="btn" href={status.installUrl}>Connect GitHub</a> : undefined}
+      description="Connect GitHub for Vercel-like repository import and automatic push deployments, or keep GitHub Actions for URL-only repositories and manual GitHub setup."
+      actions={<GitHubConnectButton onError={setMessage} />}
     >
       {message ? <div className="toast">{message}</div> : null}
 
@@ -76,18 +80,26 @@ export default function GitHubPage() {
               <div>
                 <p className="panel-kicker">GitHub App</p>
                 <h2 className="panel-title">Vercel-like repository connection</h2>
-                <p className="panel-subtitle">Install once, select allowed repositories, then import and deploy them directly from this panel.</p>
+                <p className="panel-subtitle">Connect once, choose all or selected repositories on GitHub, then import and deploy them directly from this panel.</p>
               </div>
               <span className="badge">{status?.configured ? 'Configured' : 'Setup required'}</span>
             </div>
 
             {status?.configured ? (
-              <div className="notice"><strong>Ready:</strong> GitHub App authentication and signed webhook delivery are configured.</div>
+              <div className="notice"><strong>Ready:</strong> Click Connect GitHub to choose a personal account or organization and grant access to all or selected repositories.</div>
             ) : (
-              <div className="toast error">Missing server variables: {status?.missing?.join(', ') || 'Loading configuration…'}</div>
+              <div className="notice"><strong>One-time automatic setup:</strong> Connect GitHub will open GitHub, create this server&apos;s managed GitHub App, then continue to repository access. No VPS environment variables need to be entered manually.</div>
             )}
 
+            <div className="inline-actions" style={{ marginTop: 16 }}>
+              <GitHubConnectButton label={status?.configured ? 'Connect another GitHub account' : 'Connect GitHub'} onError={setMessage} />
+              {status?.htmlUrl ? <a className="btn secondary" href={status.htmlUrl} target="_blank" rel="noreferrer">Open GitHub App</a> : null}
+            </div>
+
             <div className="review-list" style={{ marginTop: 16 }}>
+              <Review label="Connection status" value={status?.configured ? 'Ready' : 'Not connected'} />
+              <Review label="Configuration" value={status?.source === 'managed' ? 'Created automatically by Deploy OS' : status?.source === 'environment' ? 'Server environment variables' : 'Created on first connection'} />
+              <Review label="GitHub owner" value={status?.ownerLogin || 'Not connected'} />
               <Review label="Setup URL" value={status?.setupUrl || 'Loading…'} />
               <Review label="Webhook URL" value={status?.webhookUrl || 'Loading…'} />
               <Review label="Connected accounts" value={String(status?.connectedInstallations ?? 0)} />
@@ -104,7 +116,7 @@ export default function GitHubPage() {
               <button className="btn secondary" type="button" onClick={() => void load()}>Refresh list</button>
             </div>
 
-            {installations.length === 0 ? <div className="empty-state">No GitHub App installation is connected yet.</div> : (
+            {installations.length === 0 ? <div className="empty-state">No GitHub account is connected yet. Use Connect GitHub above; GitHub will ask which account and repositories Deploy OS may access.</div> : (
               <div className="stack">
                 {installations.map((installation) => (
                   <div className="details-box" key={installation.id}>
@@ -121,9 +133,12 @@ export default function GitHubPage() {
                         <Review label="Repositories" value={String(installation._count.repositories)} />
                         <Review label="Last sync" value={new Date(installation.updatedAt).toLocaleString()} />
                       </div>
-                      <button className="btn secondary" type="button" disabled={working === installation.externalId} onClick={() => void refreshInstallation(installation.externalId)} style={{ marginTop: 14 }}>
-                        {working === installation.externalId ? 'Refreshing…' : 'Refresh repositories'}
-                      </button>
+                      <div className="inline-actions" style={{ marginTop: 14 }}>
+                        <a className="btn" href={`/projects/new?installationId=${encodeURIComponent(installation.externalId)}`}>Import repository</a>
+                        <button className="btn secondary" type="button" disabled={working === installation.externalId} onClick={() => void refreshInstallation(installation.externalId)}>
+                          {working === installation.externalId ? 'Refreshing…' : 'Refresh repositories'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

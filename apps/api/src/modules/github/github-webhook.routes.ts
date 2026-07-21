@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { setGitHubCommitStatus, verifyGitHubWebhookSignature } from '../../lib/github-app.js';
+import { setGitHubCommitStatus, verifyResolvedGitHubWebhookSignature } from '../../lib/github-app.js';
 import { prisma } from '../../lib/prisma.js';
 import { createQueuedDeployment } from '../deployments/deployment.service.js';
 import { markGitHubInstallationDeleted, syncGitHubInstallation } from './github.service.js';
@@ -20,7 +20,7 @@ export async function githubWebhookRoutes(app: FastifyInstance): Promise<void> {
   app.post('/', async (request, reply) => {
     const rawBody = Buffer.isBuffer(request.body) ? request.body : Buffer.from(String(request.body || ''));
     const signature = request.headers['x-hub-signature-256'];
-    if (!verifyGitHubWebhookSignature(rawBody, Array.isArray(signature) ? signature[0] : signature)) {
+    if (!await verifyResolvedGitHubWebhookSignature(rawBody, Array.isArray(signature) ? signature[0] : signature)) {
       return reply.code(401).send({ message: 'Invalid GitHub webhook signature.' });
     }
 

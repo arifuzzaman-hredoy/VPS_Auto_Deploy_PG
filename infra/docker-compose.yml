@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     container_name: deploy-os-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: deploy_os
       POSTGRES_PASSWORD: deploy_os_password
@@ -10,6 +11,11 @@ services:
       - "127.0.0.1:15434:5432"
     volumes:
       - deploy_os_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deploy_os -d deploy_os"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     networks:
       - default
       - deploy_runtime
@@ -17,8 +23,14 @@ services:
   redis:
     image: redis:7-alpine
     container_name: deploy-os-redis
+    restart: unless-stopped
     ports:
       - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     networks:
       - default
       - deploy_runtime
@@ -26,6 +38,7 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: deploy-os-caddy
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"

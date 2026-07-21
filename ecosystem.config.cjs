@@ -1,9 +1,12 @@
+const { existsSync } = require('node:fs');
 const path = require('node:path');
 
 const root = __dirname;
 const apiDir = path.join(root, 'apps', 'api');
 const runnerDir = path.join(root, 'apps', 'runner');
-const webDir = path.join(root, 'apps', 'web', '.next', 'standalone', 'apps', 'web');
+const monorepoWebDir = path.join(root, 'apps', 'web', '.next', 'standalone', 'apps', 'web');
+const rootWebDir = path.join(root, 'apps', 'web', '.next', 'standalone');
+const webDir = existsSync(path.join(monorepoWebDir, 'server.js')) ? monorepoWebDir : rootWebDir;
 const nodeInterpreter = process.execPath;
 
 module.exports = {

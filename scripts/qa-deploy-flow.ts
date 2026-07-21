@@ -49,19 +49,30 @@ try {
   rmSync(fixture, { recursive: true, force: true });
 }
 
-const workflow = readFileSync(join(root, 'templates/github-actions/deploy.yml'), 'utf8');
+const projectWorkflow = readFileSync(join(root, 'templates/github-actions/deploy.yml'), 'utf8');
 for (const required of ['DEPLOY_API_URL', 'DEPLOY_TOKEN', 'github.run_id', 'github.run_attempt', '--retry-all-errors', 'concurrency:']) {
-  assert.ok(workflow.includes(required), `Workflow is missing ${required}`);
+  assert.ok(projectWorkflow.includes(required), `Generated project workflow is missing ${required}`);
 }
-pass('GitHub Actions template retry, idempotency and concurrency fields');
+pass('Generated project GitHub Actions retry, idempotency and concurrency fields');
+
+const controlPlaneWorkflow = readFileSync(join(root, '.github/workflows/deploy-vps.yml'), 'utf8');
+assert.ok(controlPlaneWorkflow.includes('paths-ignore:'), 'Documentation and QA-only pushes should not trigger VPS deployment');
+assert.ok(controlPlaneWorkflow.includes('full_deploy:'), 'Manual full-deploy input is missing');
+assert.ok(controlPlaneWorkflow.includes('FORCE_FULL_DEPLOY:'), 'Manual full-deploy input is not passed to the deploy script');
+pass('Control-plane workflow supports ignored paths and manual full deployment');
 
 const deployScript = readFileSync(join(root, 'scripts/deploy-vps.sh'), 'utf8');
 assert.ok(deployScript.includes('git config --local core.sshCommand'));
-assert.ok(deployScript.includes('pm2 delete "$app_name"'));
-assert.ok(deployScript.includes('pm2 start ecosystem.config.cjs --update-env'));
+assert.ok(deployScript.includes('last-successful-sha'));
+assert.ok(deployScript.includes('git diff --name-only'));
+assert.ok(deployScript.includes('No runtime-affecting files changed'));
+assert.ok(deployScript.includes('package-lock.json'));
+assert.ok(deployScript.includes('npm ci --prefer-offline'));
+assert.ok(deployScript.includes('Dependency lockfile unchanged; npm install is skipped'));
+assert.ok(!deployScript.includes('npm install --prefer-offline'));
 assert.ok(!deployScript.includes('pm2 startOrReload'));
 assert.ok(!deployScript.includes('fuser -k 3000'));
-pass('VPS deployment uses repository-scoped SSH and fresh PM2 process definitions');
+pass('VPS deployment uses repository-scoped SSH and fast incremental deployment planning');
 
 const envExample = readFileSync(join(root, '.env.example'), 'utf8');
 assert.ok(envExample.includes('RUNNER_PUBLIC_SCHEME=http'));

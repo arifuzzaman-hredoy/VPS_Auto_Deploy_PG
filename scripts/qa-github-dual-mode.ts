@@ -100,10 +100,12 @@ assert.equal(manifest.hook_attributes?.url, 'https://vps.techteamlead.com/api/gi
 assert.equal(manifest.hook_attributes?.active, true);
 assert.equal(manifest.default_permissions?.contents, 'read');
 assert.equal(manifest.default_permissions?.statuses, 'write');
-assert.deepEqual(manifest.default_events, ['push', 'installation', 'installation_repositories']);
+assert.deepEqual(manifest.default_events, ['push']);
+assert.equal(manifest.default_events?.includes('installation'), false);
+assert.equal(manifest.default_events?.includes('installation_repositories'), false);
 assert.equal(manifest.request_oauth_on_install, false);
 assert.equal(manifest.public, true);
-console.log('PASS: One-click GitHub App manifest, callback state and minimum repository access');
+console.log('PASS: One-click GitHub App manifest uses only subscribable events and minimum repository access');
 
 const githubApp = read('apps/api/src/lib/github-app.ts');
 for (const required of ['/app-manifests/', '/access_tokens', 'X-GitHub-Api-Version', '/statuses/', 'readManagedCredentials', 'encryptedPrivateKey']) {

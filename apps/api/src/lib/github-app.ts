@@ -245,7 +245,7 @@ export function buildGitHubAppManifest(): Record<string, unknown> {
       metadata: 'read',
       statuses: 'write',
     },
-    default_events: ['push', 'installation', 'installation_repositories'],
+    default_events: ['push'],
   };
 }
 

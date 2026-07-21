@@ -33,7 +33,8 @@ Webhook URL: /api/github/webhook
 Repository contents: read-only
 Metadata: read-only
 Commit statuses: read and write
-Events: push, installation, installation_repositories
+Subscribed event: push
+Automatic lifecycle events: installation, installation_repositories (GitHub delivers these to every GitHub App; they must not be listed in manifest default_events)
 ```
 
 After the App exists, later **Connect GitHub** clicks open its installation page directly. The user chooses a personal account or organization and grants all or selected repository access.

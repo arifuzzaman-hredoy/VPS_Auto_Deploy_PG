@@ -12,11 +12,13 @@ type DeployKey = {
 
 export function ProjectCiCdPanel({
   projectId,
+  projectSlug,
   branch,
   repositoryFullName,
   deployTokenConfigured,
 }: {
   projectId: string;
+  projectSlug: string;
   branch: string;
   repositoryFullName?: string | null;
   deployTokenConfigured: boolean;
@@ -57,13 +59,14 @@ jobs:
             -H "Authorization: Bearer $DEPLOY_TOKEN" \\
             -H "Content-Type: application/json" \\
             -d '{
+              "projectSlug": "${projectSlug}",
               "repository": "\${{ github.repository }}",
               "branch": "\${{ github.ref_name }}",
               "commit": "\${{ github.sha }}",
               "runId": "\${{ github.run_id }}",
               "runAttempt": "\${{ github.run_attempt }}"
             }'
-`, [branch]);
+`, [branch, projectSlug]);
 
   const loadKeys = useCallback(async () => {
     const response = await fetch(`/api/projects/${projectId}/deploy-keys`, { cache: 'no-store' });

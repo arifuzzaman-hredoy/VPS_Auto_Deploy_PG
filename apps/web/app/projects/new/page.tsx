@@ -143,13 +143,14 @@ jobs:
             -H "Authorization: Bearer $DEPLOY_TOKEN" \\
             -H "Content-Type: application/json" \\
             -d '{
+              "projectSlug": "${form.slug || "project-slug"}",
               "repository": "\${{ github.repository }}",
               "branch": "\${{ github.ref_name }}",
               "commit": "\${{ github.sha }}",
               "runId": "\${{ github.run_id }}",
               "runAttempt": "\${{ github.run_attempt }}"
             }'`;
-  }, [form.branch]);
+  }, [form.branch, form.slug]);
 
   const deployKeyGenerated = deployKeyStatus.type === "success" && Boolean(deployKeyStatus.publicKey);
 

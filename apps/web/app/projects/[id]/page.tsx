@@ -134,6 +134,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
             <ProjectCiCdPanel
               projectId={project.id}
+              projectSlug={project.slug}
               branch={project.defaultBranch}
               repositoryFullName={project.repositoryFullName}
               deployTokenConfigured={project.deployTokenConfigured}

@@ -115,7 +115,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(201).send({ ...project, deployTokenHash: undefined, deployTokenConfigured: false });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
-        return reply.code(409).send({ message: 'This project slug or GitHub repository is already connected.' });
+        return reply.code(409).send({ message: 'This project slug is already in use.' });
       }
       throw error;
     }
@@ -132,7 +132,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ ...project, deployTokenHash: undefined, deployTokenConfigured: Boolean(project.deployTokenHash) });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
-        return reply.code(409).send({ message: 'This project slug or GitHub repository is already connected.' });
+        return reply.code(409).send({ message: 'This project slug is already in use.' });
       }
       throw error;
     }

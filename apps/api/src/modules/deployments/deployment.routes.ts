@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { normalizeRepositoryFullName } from '../../lib/repository.js';
 
 const triggerSchema = z.object({
+  projectSlug: z.string().trim().min(2).max(63).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   repository: z.string().min(3),
   branch: z.string().min(1).max(120),
   commit: z.string().regex(/^[a-f0-9]{7,64}$/i),
@@ -42,10 +43,29 @@ export async function deploymentRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ message: error instanceof Error ? error.message : 'Invalid repository.' });
     }
 
-    const project = await prisma.project.findUnique({ where: { repositoryFullName } });
-    if (!project) return reply.code(404).send({ message: 'No Deploy OS project is connected to this GitHub repository.' });
-    if (!project.deployTokenHash || !verifyDeployToken(token, project.deployTokenHash)) {
+    const candidates = payload.projectSlug
+      ? await prisma.project.findMany({ where: { slug: payload.projectSlug }, take: 1 })
+      : await prisma.project.findMany({ where: { repositoryFullName } });
+
+    if (candidates.length === 0) {
+      return reply.code(404).send({
+        message: payload.projectSlug
+          ? `No Deploy OS project exists with slug ${payload.projectSlug}.`
+          : 'No Deploy OS project is connected to this GitHub repository.',
+      });
+    }
+
+    const project = candidates.find((candidate: { deployTokenHash: string | null }) =>
+      Boolean(candidate.deployTokenHash && verifyDeployToken(token, candidate.deployTokenHash)),
+    );
+
+    if (!project) {
       return reply.code(401).send({ message: 'DEPLOY_TOKEN is invalid for this project.' });
+    }
+    if (project.repositoryFullName !== repositoryFullName) {
+      return reply.code(409).send({
+        message: `Workflow repository ${repositoryFullName} does not match project repository ${project.repositoryFullName ?? 'not configured'}.`,
+      });
     }
     if (payload.branch !== project.defaultBranch) {
       return reply.code(409).send({

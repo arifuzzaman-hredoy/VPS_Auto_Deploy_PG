@@ -82,7 +82,7 @@ model Project {
   name            String
   slug            String                @unique
   repoUrl            String?
-  repositoryFullName String?             @unique
+  repositoryFullName String?
   sourceType         SourceType          @default(GITHUB)
   defaultBranch      String              @default("main")
   rootDirectory      String              @default(".")
@@ -105,6 +105,8 @@ model Project {
   domains         Domain[]
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
+
+  @@index([repositoryFullName])
 }
 
 model DeployKey {

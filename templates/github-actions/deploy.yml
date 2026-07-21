@@ -28,6 +28,7 @@ jobs:
             -H "Authorization: Bearer $DEPLOY_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
+              "projectSlug": "replace-with-project-slug",
               "repository": "${{ github.repository }}",
               "branch": "${{ github.ref_name }}",
               "commit": "${{ github.sha }}",

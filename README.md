@@ -1,3 +1,6 @@
+> [!WARNING]
+> **Do not expose the control panel to the public internet in its current documented configuration.** The README's current installation explicitly leaves database and log administration without an admin-token gate. Restrict the control-panel hostname at a trusted VPN, firewall, or authenticated reverse proxy until application-level authorization is implemented and tested. This is a deployment-control system that can build and run user-supplied repositories; treat it as privileged infrastructure.
+
 # Hredoy Deploy OS
 
 Hredoy Deploy OS is a self-hosted, Vercel-style deployment control plane for a VPS. Projects can connect through a Vercel-like GitHub App or repository-managed GitHub Actions; both methods use the same isolated Docker deployment and rollback engine.
